@@ -1,0 +1,523 @@
+//! The interactive application: state, the async event loop, and action dispatch.
+
+use crate::catalog::{self, Ctx};
+use crate::engine::{Job, JobEvent, JobStatus, Runner, Workspace};
+use crate::model::state::{now_iso, Engagement, Record};
+use crate::model::{Credential, Phase, SecretKind};
+use crate::parse;
+use super::palette::{self, Action};
+
+use anyhow::Result;
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
+use futures::StreamExt;
+use ratatui::style::Color;
+use std::collections::HashMap;
+use std::path::Path;
+use tokio::sync::mpsc;
+
+/// A styled line in the scrolling transcript.
+#[derive(Clone)]
+pub struct Line {
+    pub text: String,
+    pub color: Color,
+    /// Job id this line belongs to, for live-updating output.
+    pub job: Option<u64>,
+    pub indent: bool,
+}
+
+impl Line {
+    pub fn plain(t: impl Into<String>) -> Self { Line { text: t.into(), color: Color::Gray, job: None, indent: false } }
+    pub fn c(t: impl Into<String>, c: Color) -> Self { Line { text: t.into(), color: c, job: None, indent: false } }
+    pub fn out(t: impl Into<String>, job: u64) -> Self { Line { text: t.into(), color: Color::White, job: Some(job), indent: true } }
+}
+
+/// Live bookkeeping for an in-flight job.
+pub struct Live {
+    pub tool: String,
+    pub phase: Phase,
+    pub target: Option<String>,
+    pub command: String,
+    pub status: JobStatus,
+    pub lines: Vec<String>,
+    pub output_file: std::path::PathBuf,
+    pub record_id: Option<u64>,
+}
+
+pub struct App {
+    pub ws: Workspace,
+    pub eng: Engagement,
+    pub runner: Runner,
+    pub rx: mpsc::UnboundedReceiver<JobEvent>,
+
+    pub transcript: Vec<Line>,
+    pub input: String,
+    pub cursor: usize,
+    pub scroll: u16,          // lines scrolled up from the bottom
+    pub follow: bool,         // auto-scroll to newest
+    pub focus: Option<String>, // current host IP context
+    pub phase_filter: Option<Phase>,
+    pub live: HashMap<u64, Live>,
+    pub suggestions: Vec<&'static catalog::Tool>,
+    pub sel: usize,           // selected suggestion
+    pub show_help: bool,
+    pub should_quit: bool,
+    pub last_record: Option<u64>,
+}
+
+pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let runner = Runner::new(parallel, tx);
+    let mut app = App {
+        ws, eng, runner, rx,
+        transcript: vec![],
+        input: String::new(),
+        cursor: 0,
+        scroll: 0,
+        follow: true,
+        focus: None,
+        phase_filter: None,
+        live: HashMap::new(),
+        suggestions: vec![],
+        sel: 0,
+        show_help: false,
+        should_quit: false,
+        last_record: None,
+    };
+    app.banner();
+    app.refresh_suggestions();
+
+    let mut term = ratatui::init();
+    let res = app.event_loop(&mut term).await;
+    ratatui::restore();
+    // Best-effort final save.
+    let _ = app.ws.save(&app.eng);
+    let _ = app.ws.export_notes(&app.eng);
+    res
+}
+
+impl App {
+    fn banner(&mut self) {
+        self.transcript.push(Line::c("warden — recon-to-exploitation orchestrator", Color::Cyan));
+        self.transcript.push(Line::plain(format!("workspace: {}", self.ws.root.display())));
+        self.transcript.push(Line::plain("type /help for commands · /suggest for next steps · Tab to run a suggestion"));
+        self.transcript.push(Line::plain(""));
+    }
+
+    async fn event_loop(&mut self, term: &mut ratatui::DefaultTerminal) -> Result<()> {
+        let mut events = EventStream::new();
+        loop {
+            term.draw(|f| super::render::draw(f, self))?;
+            if self.should_quit {
+                return Ok(());
+            }
+            tokio::select! {
+                maybe_ev = events.next() => {
+                    match maybe_ev {
+                        Some(Ok(Event::Key(k))) => self.on_key(k).await,
+                        Some(Ok(_)) => {}
+                        Some(Err(_)) | None => return Ok(()),
+                    }
+                }
+                Some(job_ev) = self.rx.recv() => self.on_job_event(job_ev),
+            }
+        }
+    }
+
+    async fn on_key(&mut self, k: KeyEvent) {
+        use KeyCode::*;
+        if k.modifiers.contains(KeyModifiers::CONTROL) {
+            match k.code {
+                Char('c') => {
+                    if self.runner.active().await > 0 {
+                        self.runner.cancel_all().await;
+                        self.push(Line::c("^C — cancelling running jobs", Color::Yellow));
+                    } else {
+                        self.should_quit = true;
+                    }
+                    return;
+                }
+                Char('u') => { self.input.clear(); self.cursor = 0; return; }
+                _ => {}
+            }
+        }
+        match k.code {
+            Enter => {
+                let line = std::mem::take(&mut self.input);
+                self.cursor = 0;
+                self.show_help = false;
+                self.dispatch(&line).await;
+            }
+            Tab => self.run_selected().await,
+            Up => { if self.sel > 0 { self.sel -= 1; } }
+            Down => { if self.sel + 1 < self.suggestions.len() { self.sel += 1; } }
+            PageUp => { self.follow = false; self.scroll = self.scroll.saturating_add(10); }
+            PageDown => {
+                self.scroll = self.scroll.saturating_sub(10);
+                if self.scroll == 0 { self.follow = true; }
+            }
+            Esc => { self.input.clear(); self.cursor = 0; self.show_help = false; }
+            Backspace => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                    self.input.remove(self.cursor);
+                }
+            }
+            Left => { self.cursor = self.cursor.saturating_sub(1); }
+            Right => { if self.cursor < self.input.len() { self.cursor += 1; } }
+            Home => self.cursor = 0,
+            End => self.cursor = self.input.len(),
+            Char(c) => {
+                self.input.insert(self.cursor, c);
+                self.cursor += 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn on_job_event(&mut self, ev: JobEvent) {
+        match ev {
+            JobEvent::Started { id } => {
+                if let Some(l) = self.live.get_mut(&id) {
+                    l.status = JobStatus::Running;
+                }
+            }
+            JobEvent::Line { id, text } => {
+                if let Some(l) = self.live.get_mut(&id) {
+                    l.lines.push(text.clone());
+                }
+                self.push(Line::out(text, id));
+            }
+            JobEvent::Finished { id, status, duration_ms } => {
+                self.finish_job(id, status, duration_ms);
+            }
+        }
+    }
+
+    fn finish_job(&mut self, id: u64, status: JobStatus, duration_ms: u64) {
+        let Some(live) = self.live.remove(&id) else { return };
+        let color = match status {
+            JobStatus::Done(0) => Color::Green,
+            JobStatus::Cancelled => Color::Yellow,
+            _ => Color::Red,
+        };
+        self.push(Line::c(
+            format!("{} {} [{}] {}ms", status.symbol(), live.tool, live.command, duration_ms),
+            color,
+        ));
+
+        // Record it.
+        let exit = match status { JobStatus::Done(c) => Some(c), _ => None };
+        let excerpt: Vec<String> = live.lines.iter().take(40).cloned().collect();
+        let rec = Record {
+            id: 0,
+            phase: live.phase,
+            tool: live.tool.clone(),
+            target: live.target.clone(),
+            command: live.command.clone(),
+            exit_code: exit,
+            started: now_iso(),
+            duration_ms: Some(duration_ms),
+            output_path: self.ws.rel(&live.output_file),
+            excerpt,
+            findings: vec![],
+            starred: false,
+        };
+        let rid = self.eng.push_record(rec);
+        self.last_record = Some(rid);
+
+        // Auto-ingest results.
+        let blob = live.lines.join("\n");
+        self.ingest(&live, &blob, rid);
+
+        let _ = self.ws.save(&self.eng);
+        let _ = self.ws.export_notes(&self.eng);
+        self.refresh_suggestions();
+    }
+
+    /// Feed a finished job's output back into engagement state.
+    fn ingest(&mut self, live: &Live, blob: &str, rid: u64) {
+        // nmap XML lands in the output file; if the command produced XML, ingest it.
+        if live.tool.starts_with("nmap") || live.command.contains("-oX") {
+            if let Ok(xml) = std::fs::read_to_string(&live.output_file) {
+                if xml.contains("<nmaprun") {
+                    if let Ok(n) = parse::intel::ingest_nmap(&mut self.eng, &xml) {
+                        self.push(Line::c(format!("  ⇒ ingested {n} hosts from nmap XML"), Color::Cyan));
+                    }
+                }
+            }
+        }
+        // Credential/intel harvest from any output.
+        let before = self.eng.creds.len();
+        let added = parse::intel::harvest(&mut self.eng, blob, &format!("{} on {}",
+            live.tool, live.target.as_deref().unwrap_or("network")));
+        parse::intel::enrich_from_hosts(&mut self.eng);
+        if added > 0 {
+            self.push(Line::c(format!("  ⇒ recovered {added} credential(s)"), Color::Green));
+            let newlines: Vec<String> = self.eng.creds.iter().skip(before).map(|c| {
+                let extra = c.decoded.as_ref().map(|d| format!(" (decoded: {d})")).unwrap_or_default();
+                format!("     {} : {}{}", c.down_level(), c.secret, extra)
+            }).collect();
+            for nl in newlines {
+                self.push(Line::c(nl, Color::Green));
+            }
+        }
+        // Note (Pwn3d!) style admin markers.
+        if blob.contains("Pwn3d!") {
+            if let Some(t) = &live.target {
+                self.eng.host_mut(t).compromised = true;
+                self.push(Line::c(format!("  ⇒ {t} marked OWNED (admin access)"), Color::Magenta));
+            }
+        }
+        if let Some(r) = self.eng.records.iter_mut().find(|r| r.id == rid) {
+            if added > 0 { r.findings.push(format!("{added} credential(s) recovered")); }
+        }
+        self.eng.recompute_segments();
+    }
+
+    async fn dispatch(&mut self, line: &str) {
+        let action = palette::parse(line);
+        match action {
+            Action::Quit => self.should_quit = true,
+            Action::Help => self.show_help = true,
+            Action::Suggest => { self.refresh_suggestions(); self.print_suggestions(); }
+            Action::RunTool(id) => self.run_tool_by_id(&id).await,
+            Action::RunRaw(cmd) => self.run_raw(&cmd).await,
+            Action::Focus(ip) => self.set_focus(&ip),
+            Action::AddTarget(t) => match seed_target(&mut self.eng, &t) {
+                Ok(_) => { self.eng.recompute_segments(); self.push(Line::c(format!("+ target {t}"), Color::Cyan)); self.refresh_suggestions(); }
+                Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+            },
+            Action::Import(path) => self.import(&path),
+            Action::AddCred(spec) => self.add_cred(&spec),
+            Action::Harvest(arg) => self.harvest(&arg),
+            Action::Set(k, v) => self.set_var(&k, &v),
+            Action::Cancel(id) => match id {
+                Some(i) => self.runner.cancel(i).await,
+                None => self.runner.cancel_all().await,
+            },
+            Action::Export => match self.ws.export_notes(&self.eng) {
+                Ok(p) => self.push(Line::c(format!("notes → {}", p.display()), Color::Cyan)),
+                Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+            },
+            Action::Star => self.star_last(),
+            Action::Phase(p) => self.set_phase_filter(p),
+            Action::Unknown(c) => self.push(Line::c(format!("? unknown command /{c} — try /help"), Color::Yellow)),
+        }
+        let _ = self.ws.save(&self.eng);
+    }
+
+    async fn run_selected(&mut self) {
+        if let Some(tool) = self.suggestions.get(self.sel).copied() {
+            self.run_tool(tool).await;
+        }
+    }
+
+    async fn run_tool_by_id(&mut self, id: &str) {
+        match catalog::by_id(id) {
+            Some(t) => self.run_tool(t).await,
+            None => self.push(Line::c(format!("? no tool '{id}' — /suggest to list"), Color::Yellow)),
+        }
+    }
+
+    async fn run_tool(&mut self, tool: &'static catalog::Tool) {
+        let host = self.focus.as_ref().and_then(|ip| self.eng.hosts.get(ip)).cloned();
+        let ctx = Ctx::from_engagement(&self.eng, host.as_ref(), None);
+        match tool.render(&ctx) {
+            Ok(cmd) => {
+                if tool.interactive {
+                    self.push(Line::c(format!("⚠ {} needs a real TTY — run it in a separate terminal:", tool.name), Color::Yellow));
+                    self.push(Line::c(format!("  {cmd}"), Color::White));
+                    return;
+                }
+                self.launch(tool.id, tool.phase, tool.speed.timeout_secs(),
+                    self.focus.clone(), cmd, tool.note).await;
+            }
+            Err(missing) => {
+                self.push(Line::c(
+                    format!("… {} needs: {} — set them with /set or /cred, or /focus a host",
+                        tool.name, missing.join(", ")), Color::Yellow));
+            }
+        }
+    }
+
+    async fn run_raw(&mut self, cmd: &str) {
+        if cmd.is_empty() { return; }
+        let phase = self.phase_filter.unwrap_or(Phase::Exploit);
+        self.launch("raw", phase, 0, self.focus.clone(), cmd.to_string(), "").await;
+    }
+
+    async fn launch(&mut self, tool: &str, phase: Phase, timeout: u64,
+                    target: Option<String>, command: String, note: &str) {
+        let id = self.eng.next_record_id.max(1);
+        // Reserve the id space by bumping; the record is created on completion.
+        self.eng.next_record_id = id + 1;
+        let out = match self.ws.output_file(id, target.as_deref(), phase.slug(), tool) {
+            Ok(p) => p,
+            Err(e) => { self.push(Line::c(format!("! {e}"), Color::Red)); return; }
+        };
+        if !note.is_empty() {
+            self.push(Line::c(format!("# {note}"), Color::DarkGray));
+        }
+        self.push(Line::c(format!("▶ #{id} {command}"), Color::Cyan));
+        self.live.insert(id, Live {
+            tool: tool.to_string(), phase, target: target.clone(),
+            command: command.clone(), status: JobStatus::Queued,
+            lines: vec![], output_file: out.clone(), record_id: None,
+        });
+        self.runner.spawn(Job {
+            id, tool: tool.to_string(), phase, target,
+            command, output_file: out, timeout_secs: timeout,
+        });
+    }
+
+    fn set_focus(&mut self, ip: &str) {
+        if self.eng.hosts.contains_key(ip) {
+            self.focus = Some(ip.to_string());
+            self.push(Line::c(format!("→ focus {ip}"), Color::Cyan));
+        } else {
+            self.push(Line::c(format!("? no host {ip} in scope (/target to add)"), Color::Yellow));
+        }
+        self.refresh_suggestions();
+    }
+
+    fn import(&mut self, path: &str) {
+        match std::fs::read_to_string(path) {
+            Ok(xml) => match parse::intel::ingest_nmap(&mut self.eng, &xml) {
+                Ok(n) => {
+                    self.push(Line::c(format!("imported {n} hosts from {path}"), Color::Cyan));
+                    self.eng.recompute_segments();
+                    self.refresh_suggestions();
+                }
+                Err(e) => self.push(Line::c(format!("! parse error: {e}"), Color::Red)),
+            },
+            Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+        }
+    }
+
+    fn add_cred(&mut self, spec: &str) {
+        // domain/user:pass  |  user:pass  |  user:pass@domain
+        let (idpart, secret) = match spec.split_once(':') {
+            Some(x) => x,
+            None => { self.push(Line::c("usage: /cred [domain/]user:secret", Color::Yellow)); return; }
+        };
+        let (domain, user) = if let Some((d, u)) = idpart.split_once('/') {
+            (Some(d.to_string()), u.to_string())
+        } else { (None, idpart.to_string()) };
+        let kind = if secret.len() == 32 && secret.chars().all(|c| c.is_ascii_hexdigit()) {
+            SecretKind::NtHash
+        } else { SecretKind::Password };
+        let mut c = Credential::new(user, secret, kind, "operator");
+        if let Some(d) = domain { c = c.with_domain(d); }
+        if parse::intel::maybe_b64(secret).is_some() {
+            c.decoded = parse::intel::maybe_b64(secret);
+        }
+        if self.eng.add_cred(c) {
+            self.push(Line::c("+ credential added", Color::Green));
+        } else {
+            self.push(Line::plain("credential already known"));
+        }
+        self.refresh_suggestions();
+    }
+
+    fn harvest(&mut self, arg: &str) {
+        let text = if Path::new(arg).exists() {
+            std::fs::read_to_string(arg).unwrap_or_default()
+        } else { arg.to_string() };
+        let n = parse::intel::harvest(&mut self.eng, &text, "harvest");
+        parse::intel::enrich_from_hosts(&mut self.eng);
+        self.push(Line::c(format!("harvested {n} credential(s)"), Color::Green));
+        self.refresh_suggestions();
+    }
+
+    fn set_var(&mut self, k: &str, v: &str) {
+        match k.to_ascii_lowercase().as_str() {
+            "proxy" => { self.eng.proxy = if v.is_empty() { None } else { Some(v.to_string()) }; }
+            "iface" | "interface" => self.eng.interface = Some(v.to_string()),
+            "domain" => self.eng.domain.fqdn = Some(v.to_ascii_lowercase()),
+            "dc" | "dc_ip" => { self.eng.domain.dc_ips.insert(v.to_string()); }
+            other => { self.eng.wordlists.insert(other.to_string(), v.to_string()); }
+        }
+        self.push(Line::c(format!("set {k} = {v}"), Color::Cyan));
+        self.refresh_suggestions();
+    }
+
+    fn star_last(&mut self) {
+        if let Some(id) = self.last_record {
+            if let Some(r) = self.eng.records.iter_mut().find(|r| r.id == id) {
+                r.starred = true;
+                self.push(Line::c(format!("⭐ starred #{id}"), Color::Yellow));
+            }
+        }
+    }
+
+    fn set_phase_filter(&mut self, p: Option<String>) {
+        self.phase_filter = p.and_then(|s| s.parse().ok());
+        self.refresh_suggestions();
+        match self.phase_filter {
+            Some(p) => self.push(Line::c(format!("phase filter: {}", p.title()), Color::Cyan)),
+            None => self.push(Line::plain("phase filter cleared")),
+        }
+    }
+
+    pub fn refresh_suggestions(&mut self) {
+        let host = self.focus.as_ref().and_then(|ip| self.eng.hosts.get(ip));
+        let mut s = catalog::suggest(&self.eng, host);
+        if let Some(pf) = self.phase_filter {
+            s.retain(|t| t.phase == pf);
+        }
+        s.truncate(12);
+        self.suggestions = s;
+        if self.sel >= self.suggestions.len() {
+            self.sel = self.suggestions.len().saturating_sub(1);
+        }
+    }
+
+    fn print_suggestions(&mut self) {
+        let ctx_label = self.focus.clone().unwrap_or_else(|| "network".into());
+        self.push(Line::c(format!("suggested next steps for {ctx_label}:"), Color::Cyan));
+        let items: Vec<(String, Color)> = self.suggestions.iter().enumerate().map(|(i, t)| {
+            (format!("  {}. [{}] {} — {}", i + 1, t.phase.slug(), t.name, t.desc), Color::White)
+        }).collect();
+        for (t, c) in items {
+            self.push(Line::c(t, c));
+        }
+    }
+
+    fn push(&mut self, l: Line) {
+        self.transcript.push(l);
+        if self.transcript.len() > 20_000 {
+            self.transcript.drain(0..5_000);
+        }
+        if self.follow {
+            self.scroll = 0;
+        }
+    }
+}
+
+/// Add a target: an IP, a CIDR, or a path to a hosts file.
+pub fn seed_target(eng: &mut Engagement, spec: &str) -> Result<()> {
+    use crate::model::Host;
+    let spec = spec.trim();
+    if Path::new(spec).exists() {
+        for line in std::fs::read_to_string(spec)?.lines() {
+            let l = line.trim();
+            if !l.is_empty() && !l.starts_with('#') {
+                let _ = seed_target(eng, l);
+            }
+        }
+        return Ok(());
+    }
+    if let Ok(net) = spec.parse::<ipnet::Ipv4Net>() {
+        if net.prefix_len() >= 24 {
+            for ip in net.hosts().take(256) {
+                eng.hosts.entry(ip.to_string()).or_insert_with(|| Host::new(ip.to_string()));
+            }
+            return Ok(());
+        }
+    }
+    if spec.parse::<std::net::Ipv4Addr>().is_ok() {
+        eng.hosts.entry(spec.to_string()).or_insert_with(|| Host::new(spec));
+        return Ok(());
+    }
+    anyhow::bail!("not an IP, CIDR, or existing file: {spec}");
+}
