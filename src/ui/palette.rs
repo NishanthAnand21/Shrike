@@ -30,6 +30,12 @@ pub enum Action {
     Phase(Option<String>),
     Help,
     Quit,
+    /// Generate a payload: id [lhost] [lport] [+transform]
+    Payload(String),
+    /// Build an msfvenom command: id [lhost] [lport]
+    Msf(String),
+    /// List payloads (optional filter).
+    Payloads(String),
     /// Not understood.
     Unknown(String),
 }
@@ -68,6 +74,9 @@ pub fn parse(line: &str) -> Action {
         "star" => Star,
         "phase" | "p" => Phase(if rest.is_empty() { None } else { Some(rest) }),
         "help" | "h" | "?" => Help,
+        "payload" | "gen" | "rev" => Payload(rest),
+        "msf" | "msfvenom" => Msf(rest),
+        "payloads" | "listpayloads" => Payloads(rest),
         "quit" | "q" | "exit" => Quit,
         other => Unknown(other.to_string()),
     }

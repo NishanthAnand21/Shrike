@@ -5,6 +5,7 @@ use crate::engine::{Job, JobEvent, JobStatus, Runner, Workspace};
 use crate::model::state::{now_iso, Engagement, Record};
 use crate::model::{Credential, Phase, SecretKind};
 use crate::parse;
+use crate::payload::{self, transform};
 use super::palette::{self, Action};
 
 use anyhow::Result;
@@ -301,6 +302,9 @@ impl App {
             },
             Action::Star => self.star_last(),
             Action::Phase(p) => self.set_phase_filter(p),
+            Action::Payload(spec) => self.gen_payload(&spec),
+            Action::Msf(spec) => self.gen_msf(&spec),
+            Action::Payloads(filter) => self.list_payloads(&filter),
             Action::Unknown(c) => self.push(Line::c(format!("? unknown command /{c} — try /help"), Color::Yellow)),
         }
         let _ = self.ws.save(&self.eng);
@@ -433,6 +437,8 @@ impl App {
         match k.to_ascii_lowercase().as_str() {
             "proxy" => { self.eng.proxy = if v.is_empty() { None } else { Some(v.to_string()) }; }
             "iface" | "interface" => self.eng.interface = Some(v.to_string()),
+            "lhost" => self.eng.lhost = Some(v.to_string()),
+            "lport" => self.eng.lport = Some(v.to_string()),
             "domain" => self.eng.domain.fqdn = Some(v.to_ascii_lowercase()),
             "dc" | "dc_ip" => { self.eng.domain.dc_ips.insert(v.to_string()); }
             other => { self.eng.wordlists.insert(other.to_string(), v.to_string()); }
@@ -483,6 +489,117 @@ impl App {
         }
     }
 
+    // ───────────────────────── payloads
+
+    /// Resolve lhost/lport: explicit args override stored engagement values.
+    fn payload_params(&self, args: &[&str]) -> payload::Params {
+        let mut p = payload::Params::default();
+        p.lhost = args.get(1).map(|s| s.to_string())
+            .or_else(|| self.eng.lhost.clone())
+            .unwrap_or_else(|| "{lhost}".into());
+        p.lport = args.get(2).map(|s| s.to_string())
+            .or_else(|| self.eng.lport.clone())
+            .unwrap_or_else(|| "4444".into());
+        p
+    }
+
+    fn gen_payload(&mut self, spec: &str) {
+        // form: <id> [lhost] [lport] [+transform]
+        let mut transform_name = None;
+        let tokens: Vec<String> = spec.split_whitespace().map(|t| {
+            if let Some(t2) = t.strip_prefix('+') { transform_name = Some(t2.to_string()); String::new() }
+            else { t.to_string() }
+        }).filter(|t| !t.is_empty()).collect();
+        let args: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
+        if args.is_empty() {
+            self.list_payloads("");
+            return;
+        }
+        let Some(pl) = payload::by_id(args[0]) else {
+            self.push(Line::c(format!("? no payload '{}' — /payloads to list", args[0]), Color::Yellow));
+            return;
+        };
+        let params = self.payload_params(&args);
+        let mut body = pl.render(&params);
+
+        // Optional transform.
+        if let Some(tn) = &transform_name {
+            match transform_kind(tn) {
+                Some(tk) => body = transform::apply(tk, &body),
+                None => self.push(Line::c(format!("? unknown transform '{tn}' (base64,ps-encodedcommand,hex,url-encode,xor-ps-stub,ps-char-array,bash-b64-exec,py-b64-exec,php-b64-eval)"), Color::Yellow)),
+            }
+        }
+
+        self.push(Line::c(format!("── {} [{}/{}] ──", pl.name, pl.os.label(), pl.lang.label()), Color::Magenta));
+        if !pl.notes.is_empty() {
+            self.push(Line::c(format!("  {}", pl.notes), Color::DarkGray));
+        }
+        for l in body.lines() {
+            self.push(Line::c(l.to_string(), Color::White));
+        }
+        let listener = pl.render_listener(&params);
+        if !listener.is_empty() {
+            self.push(Line::c(format!("  listener: {listener}"), Color::Green));
+        }
+        if !pl.transforms.is_empty() && transform_name.is_none() {
+            let ts: Vec<&str> = pl.transforms.iter().map(|t| t.label()).collect();
+            self.push(Line::c(format!("  transforms: {} — add e.g. /payload {} +{}", ts.join(", "), pl.id, ts[0]), Color::DarkGray));
+        }
+        // Save to workspace loot for reuse.
+        let fname = format!("{}.{}", pl.id, pl.lang.ext());
+        let path = self.ws.loot_dir().join(&fname);
+        let _ = std::fs::write(&path, &body);
+        self.push(Line::c(format!("  saved → loot/{fname}"), Color::Cyan));
+        self.eng.note(Phase::PostExploit, format!("payload {}: {}", pl.id, body.lines().next().unwrap_or("")));
+    }
+
+    fn gen_msf(&mut self, spec: &str) {
+        let args: Vec<&str> = spec.split_whitespace().collect();
+        if args.is_empty() {
+            self.push(Line::c("msfvenom specs:", Color::Cyan));
+            let names: Vec<(String,String)> = payload::msf::SPECS.iter()
+                .map(|s| (s.id.to_string(), s.name.to_string())).collect();
+            for (id, name) in names {
+                self.push(Line::c(format!("  {id:22} {name}"), Color::White));
+            }
+            return;
+        }
+        let Some(spec_def) = payload::msf::by_id(args[0]) else {
+            self.push(Line::c(format!("? no msf spec '{}' — /msf to list", args[0]), Color::Yellow));
+            return;
+        };
+        let lhost = args.get(1).map(|s| s.to_string())
+            .or_else(|| self.eng.lhost.clone()).unwrap_or_else(|| "{lhost}".into());
+        let lport = args.get(2).map(|s| s.to_string())
+            .or_else(|| self.eng.lport.clone()).unwrap_or_else(|| "4444".into());
+        let cmd = spec_def.command(&lhost, &lport, "", None, 1);
+        self.push(Line::c(format!("── msfvenom · {} ──", spec_def.name), Color::Magenta));
+        self.push(Line::c(format!("  {}", spec_def.notes), Color::DarkGray));
+        self.push(Line::c(cmd, Color::White));
+        let handler = if spec_def.stageless() {
+            format!("  listener: rlwrap -cAr nc -lvnp {lport}")
+        } else {
+            format!("  handler: {}", spec_def.handler(&lhost, &lport))
+        };
+        self.push(Line::c(handler, Color::Green));
+    }
+
+    fn list_payloads(&mut self, filter: &str) {
+        let f = filter.trim().to_ascii_lowercase();
+        let items: Vec<(String, Color)> = payload::all().iter()
+            .filter(|p| f.is_empty()
+                || p.os.label().contains(&f) || p.lang.label().contains(&f)
+                || p.kind.label().contains(&f) || p.id.contains(&f))
+            .map(|p| (format!("  {:22} [{}/{}/{}] {}", p.id, p.os.label(), p.kind.label(), p.lang.label(), p.name), Color::White))
+            .collect();
+        self.push(Line::c(format!("payloads{}:", if f.is_empty() { String::new() } else { format!(" · {f}") }), Color::Cyan));
+        if items.is_empty() {
+            self.push(Line::plain("  (none match)"));
+        }
+        for (t, c) in items { self.push(Line::c(t, c)); }
+        self.push(Line::c("  usage: /payload <id> [lhost] [lport] [+transform]   ·   /msf <id>", Color::DarkGray));
+    }
+
     fn push(&mut self, l: Line) {
         self.transcript.push(l);
         if self.transcript.len() > 20_000 {
@@ -520,4 +637,22 @@ pub fn seed_target(eng: &mut Engagement, spec: &str) -> Result<()> {
         return Ok(());
     }
     anyhow::bail!("not an IP, CIDR, or existing file: {spec}");
+}
+
+/// Map a transform name from the palette to its enum.
+fn transform_kind(name: &str) -> Option<transform::Kind> {
+    use transform::Kind::*;
+    Some(match name.to_ascii_lowercase().as_str() {
+        "base64" | "b64" => Base64,
+        "ps-encodedcommand" | "enc" | "psenc" => PsEncodedCommand,
+        "hex" => Hex,
+        "url-encode" | "url" => UrlEncode,
+        "double-url-encode" | "durl" => DoubleUrlEncode,
+        "xor-ps-stub" | "xor" => XorPsStub,
+        "ps-char-array" | "chararray" => PsCharArray,
+        "bash-b64-exec" | "bashb64" => BashB64Exec,
+        "py-b64-exec" | "pyb64" => PyB64Exec,
+        "php-b64-eval" | "phpb64" => PhpB64Eval,
+        _ => return None,
+    })
 }

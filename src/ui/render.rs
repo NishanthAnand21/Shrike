@@ -159,7 +159,7 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_help(f: &mut Frame, area: Rect) {
     let w = 66u16.min(area.width.saturating_sub(4));
-    let h = 22u16.min(area.height.saturating_sub(2));
+    let h = 27u16.min(area.height.saturating_sub(2));
     let rect = Rect {
         x: area.x + (area.width - w) / 2,
         y: area.y + (area.height - h) / 2,
@@ -182,6 +182,10 @@ fn draw_help(f: &mut Frame, area: Rect) {
         row("/cred [dom/]user:secret", "add a credential (hash or password)"),
         row("/harvest <file|text>", "scrape creds/intel from output"),
         row("/set proxy|iface|domain|dc|<wl>", "set engagement variables"),
+        row("/set lhost|lport <v>", "set payload LHOST/LPORT"),
+        row("/payload <id> [+xform]", "generate a shell payload (revshells)"),
+        row("/msf <id>", "build an msfvenom command + handler"),
+        row("/payloads [filter]", "list available payloads"),
         row("/suggest", "recompute next-step suggestions"),
         row("/phase <name>", "filter suggestions to a phase"),
         row("/export", "write notes.md now · /star  mark last cmd"),

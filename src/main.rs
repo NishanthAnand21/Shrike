@@ -4,6 +4,7 @@ mod engine;
 mod model;
 mod notes;
 mod parse;
+mod payload;
 mod ui;
 
 use anyhow::Result;

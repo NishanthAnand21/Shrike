@@ -86,6 +86,11 @@ pub struct Engagement {
     pub proxy: Option<String>,
     #[serde(default)]
     pub interface: Option<String>,
+    /// Attacker listener host/port for payloads (LHOST/LPORT).
+    #[serde(default)]
+    pub lhost: Option<String>,
+    #[serde(default)]
+    pub lport: Option<String>,
     #[serde(default)]
     pub wordlists: BTreeMap<String, String>,
 }
