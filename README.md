@@ -3,7 +3,7 @@
 > A recon-to-exploitation orchestration framework with a minimalist terminal UI —
 > the shrike is a butcherbird that hunts methodically and pins its prey.
 
-![CI](https://github.com/OWNER/shrike/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/NishanthAnand21/Shrike/actions/workflows/ci.yml/badge.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 📖 [Install](docs/INSTALL.md) · [Usage](docs/USAGE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
