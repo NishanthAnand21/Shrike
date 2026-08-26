@@ -45,6 +45,14 @@ cargo build --release
 ./target/release/warden --targets hosts.txt --import services.xml --plan
 ```
 
+### Interface
+
+A minimalist terminal UI in the spirit of Claude Code: a full-width transcript, a
+rounded input box, and a slash-command **autocomplete popup** that appears as you
+type `/`. `Tab` completes the highlighted command (or, with no menu open, runs the
+top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G` or
+`/panel` toggles it, so the default view stays clean.
+
 ### In the TUI
 
 | key / command | action |

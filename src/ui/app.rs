@@ -61,6 +61,8 @@ pub struct App {
     pub suggestions: Vec<&'static catalog::Tool>,
     pub sel: usize,           // selected suggestion
     pub show_help: bool,
+    pub show_panel: bool,
+    pub menu_sel: usize,
     pub should_quit: bool,
     pub last_record: Option<u64>,
 }
@@ -81,6 +83,8 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         suggestions: vec![],
         sel: 0,
         show_help: false,
+        show_panel: false,
+        menu_sel: 0,
         should_quit: false,
         last_record: None,
     };
@@ -98,9 +102,8 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
 
 impl App {
     fn banner(&mut self) {
-        self.transcript.push(Line::c("warden — recon-to-exploitation orchestrator", Color::Cyan));
-        self.transcript.push(Line::plain(format!("workspace: {}", self.ws.root.display())));
-        self.transcript.push(Line::plain("type /help for commands · /suggest for next steps · Tab to run a suggestion"));
+        self.transcript.push(Line::c("✳ warden — recon-to-exploitation orchestrator", Color::Cyan));
+        self.transcript.push(Line::plain(format!("  {}", self.ws.root.display())));
         self.transcript.push(Line::plain(""));
     }
 
@@ -138,6 +141,7 @@ impl App {
                     return;
                 }
                 Char('u') => { self.input.clear(); self.cursor = 0; return; }
+                Char('g') => { self.show_panel = !self.show_panel; return; }
                 _ => {}
             }
         }
@@ -148,9 +152,24 @@ impl App {
                 self.show_help = false;
                 self.dispatch(&line).await;
             }
-            Tab => self.run_selected().await,
-            Up => { if self.sel > 0 { self.sel -= 1; } }
-            Down => { if self.sel + 1 < self.suggestions.len() { self.sel += 1; } }
+            Tab => {
+                if self.menu_active() {
+                    self.accept_completion();
+                } else {
+                    self.run_selected().await;
+                }
+            }
+            Up => {
+                if self.menu_active() {
+                    if self.menu_sel > 0 { self.menu_sel -= 1; }
+                } else if self.sel > 0 { self.sel -= 1; }
+            }
+            Down => {
+                if self.menu_active() {
+                    let n = self.completions_len();
+                    if self.menu_sel + 1 < n { self.menu_sel += 1; }
+                } else if self.sel + 1 < self.suggestions.len() { self.sel += 1; }
+            }
             PageUp => { self.follow = false; self.scroll = self.scroll.saturating_add(10); }
             PageDown => {
                 self.scroll = self.scroll.saturating_sub(10);
@@ -161,6 +180,7 @@ impl App {
                 if self.cursor > 0 {
                     self.cursor -= 1;
                     self.input.remove(self.cursor);
+                    self.menu_sel = 0;
                 }
             }
             Left => { self.cursor = self.cursor.saturating_sub(1); }
@@ -170,6 +190,7 @@ impl App {
             Char(c) => {
                 self.input.insert(self.cursor, c);
                 self.cursor += 1;
+                self.menu_sel = 0;
             }
             _ => {}
         }
@@ -302,6 +323,7 @@ impl App {
             },
             Action::Star => self.star_last(),
             Action::Phase(p) => self.set_phase_filter(p),
+            Action::TogglePanel => { self.show_panel = !self.show_panel; }
             Action::Payload(spec) => self.gen_payload(&spec),
             Action::Msf(spec) => self.gen_msf(&spec),
             Action::Payloads(filter) => self.list_payloads(&filter),
@@ -462,6 +484,25 @@ impl App {
         match self.phase_filter {
             Some(p) => self.push(Line::c(format!("phase filter: {}", p.title()), Color::Cyan)),
             None => self.push(Line::plain("phase filter cleared")),
+        }
+    }
+
+    /// Is the slash-command autocomplete menu currently showing?
+    pub fn menu_active(&self) -> bool {
+        !super::palette::completions(&self.input).is_empty()
+    }
+
+    pub fn completions_len(&self) -> usize {
+        super::palette::completions(&self.input).len()
+    }
+
+    /// Fill the input with the selected completion.
+    fn accept_completion(&mut self) {
+        let comps = super::palette::completions(&self.input);
+        if let Some(c) = comps.get(self.menu_sel).or_else(|| comps.first()) {
+            self.input = format!("/{} ", c.name);
+            self.cursor = self.input.len();
+            self.menu_sel = 0;
         }
     }
 
