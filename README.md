@@ -11,9 +11,10 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 
 ## What it does
 
-- **One interface for everything.** A scrolling transcript of every command and its
-  output, a live *next-steps* sidebar, a *context* panel for the focused host, and a
-  prompt at the bottom — driven by slash-commands and a Tab-to-run palette.
+- **One minimalist interface.** A full-width transcript of every command and its
+  output, a rounded input box, and a slash-command autocomplete popup — in the spirit
+  of the Claude Code terminal. An opt-in dashboard (`Ctrl-G`) adds next-steps and a
+  per-host context panel when you want them.
 - **Understands the network.** Ingests nmap XML, classifies each `/24` as
   internal/external, and works out reachability: which segments are **routable now**
   vs **pivot-required**, and through which compromised host to pivot.
@@ -28,22 +29,28 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
   resumes exactly where it left off. `notes.md` is regenerated continuously, grouped
   by phase, with the topology map and the credential table.
 
-## Build
+## Documentation
+
+- **[docs/INSTALL.md](docs/INSTALL.md)** — prerequisites, building, installing the
+  orchestrated toolchain, troubleshooting.
+- **[docs/USAGE.md](docs/USAGE.md)** — the full command reference and an end-to-end
+  workflow walkthrough.
+
+## Quickstart
 
 ```bash
+# 1. build (needs Rust — see docs/INSTALL.md)
 cargo build --release
-```
 
-## Run
+# 2. run: start an engagement, seed targets, import an existing scan
+./target/release/warden --name oscp-exam --targets hosts.txt --import services.xml
 
-```bash
-# start an engagement, seed targets, import an existing scan
-./target/release/warden --name oscp-exam \
-    --targets hosts.txt --import services.xml
-
-# or just print the enumeration plan and topology, non-interactively
+# …or just print the topology + enumeration plan, no UI
 ./target/release/warden --targets hosts.txt --import services.xml --plan
 ```
+
+In the TUI: type `/` for the command menu, `Tab` to run the highlighted suggestion,
+`Ctrl-G` for the dashboard, `/help` for everything, `/quit` to save and exit.
 
 ### Interface
 
