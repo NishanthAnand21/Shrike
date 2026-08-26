@@ -167,7 +167,7 @@ fn draw_menu(f: &mut Frame, app: &App, input_area: Rect) {
         return;
     }
     let rows = comps.len().min(8) as u16;
-    let w = 72u16.min(input_area.width);
+    let w = 88u16.min(input_area.width);
     let h = rows + 2;
     let rect = Rect {
         x: input_area.x,
@@ -387,12 +387,13 @@ fn row(k: &str, v: &str) -> TLine<'static> {
 fn phase_color(p: crate::model::Phase) -> Color {
     use crate::model::Phase::*;
     match p {
-        Discovery | PortScan | ServiceEnum => Color::Blue,
+        // Light variants throughout: plain Blue/Red are near-illegible on dark terminals.
+        Discovery | PortScan | ServiceEnum => Color::LightBlue,
         WebEnum | DirEnum | ApiEnum | VulnScan => ACCENT,
-        SmbEnum | AdEnum => Color::Yellow,
-        Exploit | CredAccess => Color::Red,
-        Cracking => Color::Magenta,
-        Pivot => Color::Green,
+        SmbEnum | AdEnum => Color::LightYellow,
+        Exploit | CredAccess => Color::LightRed,
+        Cracking => Color::LightMagenta,
+        Pivot => Color::LightGreen,
         PostExploit | PrivEsc | Loot => Color::LightRed,
     }
 }

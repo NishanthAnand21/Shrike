@@ -8,6 +8,11 @@
 
 📖 [Install](docs/INSTALL.md) · [Usage](docs/USAGE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
+<p align="center">
+  <img src="docs/images/01-overview.png" alt="shrike — context-aware next-step suggestions" width="100%">
+</p>
+
+
 An offensive-security **recon-to-exploitation orchestration framework** with a
 Claude-Code-style terminal interface. You paste in targets, and shrike drives the
 existing Kali toolchain (nmap, netexec, impacket, hashcat, bloodhound, ligolo, …)
@@ -36,6 +41,27 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 - **Never loses work.** State is serialised to disk after every command; a session
   resumes exactly where it left off. `notes.md` is regenerated continuously, grouped
   by phase, with the topology map and the credential table.
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%">
+<img src="docs/images/02-commands.png" alt="Slash-command palette"><br>
+<sub><b>Command palette</b> — type <code>/</code> and the menu appears; arrows to select, Tab to complete.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/04-dashboard.png" alt="Dashboard panel"><br>
+<sub><b>Dashboard</b> (<code>Ctrl-G</code>) — phase-ranked next steps and the focused host's ports, OS and domain.</sub>
+</td>
+</tr>
+<tr>
+<td colspan="2">
+<img src="docs/images/03-payloads.png" alt="Payload generation"><br>
+<sub><b>Payload generation</b> — reverse shells in any language, encoding transforms applied with <code>+name</code>, and msfvenom commands; each printed with its matching listener and saved to <code>loot/</code>.</sub>
+</td>
+</tr>
+</table>
 
 ## Documentation
 
