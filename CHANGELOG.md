@@ -3,7 +3,7 @@
 All notable changes to shrike are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are pre-1.0 and may change.
 
-## [Unreleased]
+## [0.1.0] — 2026-08-26
 
 ### Added
 - **Core framework** — Rust + async (tokio) recon-to-exploitation orchestrator with a
