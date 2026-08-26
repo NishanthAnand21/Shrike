@@ -61,32 +61,52 @@ pub fn draw(f: &mut Frame, app: &App) {
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let active = app.live.len();
     let mut spans = vec![
-        Span::styled("  warden", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "  shrike",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("  ·  ", Style::default().fg(MUTED)),
         Span::styled(app.eng.summary(), Style::default().fg(FAINT)),
     ];
     if active > 0 {
-        spans.push(Span::styled(format!("  ● {active} running"), Style::default().fg(Color::Yellow)));
+        spans.push(Span::styled(
+            format!("  ● {active} running"),
+            Style::default().fg(Color::Yellow),
+        ));
     }
     if let Some(p) = &app.eng.proxy {
-        spans.push(Span::styled(format!("  ⇄ {p}"), Style::default().fg(Color::Magenta)));
+        spans.push(Span::styled(
+            format!("  ⇄ {p}"),
+            Style::default().fg(Color::Magenta),
+        ));
     }
     f.render_widget(Paragraph::new(TLine::from(spans)), area);
 }
 
 fn draw_transcript(f: &mut Frame, app: &App, area: Rect) {
     // No border — the transcript breathes edge to edge, like a chat log.
-    let pad = Rect { x: area.x + 2, y: area.y, width: area.width.saturating_sub(3), height: area.height };
+    let pad = Rect {
+        x: area.x + 2,
+        y: area.y,
+        width: area.width.saturating_sub(3),
+        height: area.height,
+    };
     let height = pad.height as usize;
     let total = app.transcript.len();
     let end = total.saturating_sub(app.scroll as usize);
     let start = end.saturating_sub(height);
     let slice = &app.transcript[start..end];
 
-    let lines: Vec<TLine> = slice.iter().map(|l| {
-        let prefix = if l.indent { "  " } else { "" };
-        TLine::from(Span::styled(format!("{prefix}{}", l.text), Style::default().fg(l.color)))
-    }).collect();
+    let lines: Vec<TLine> = slice
+        .iter()
+        .map(|l| {
+            let prefix = if l.indent { "  " } else { "" };
+            TLine::from(Span::styled(
+                format!("{prefix}{}", l.text),
+                Style::default().fg(l.color),
+            ))
+        })
+        .collect();
     f.render_widget(Paragraph::new(lines), pad);
 }
 
@@ -104,7 +124,10 @@ fn draw_hint(f: &mut Frame, app: &App, area: Rect) {
         }
     };
     f.render_widget(
-        Paragraph::new(TLine::from(Span::styled(format!("  {hint}"), Style::default().fg(FAINT)))),
+        Paragraph::new(TLine::from(Span::styled(
+            format!("  {hint}"),
+            Style::default().fg(FAINT),
+        ))),
         area,
     );
 }
@@ -112,7 +135,7 @@ fn draw_hint(f: &mut Frame, app: &App, area: Rect) {
 fn draw_input(f: &mut Frame, app: &App, area: Rect) {
     let focus_tag = app.focus.as_deref().unwrap_or("");
     let title = if focus_tag.is_empty() {
-        " warden ".to_string()
+        " shrike ".to_string()
     } else {
         format!(" {focus_tag} ")
     };
@@ -126,7 +149,10 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
 
     let prompt = "❯ ";
     let line = TLine::from(vec![
-        Span::styled(prompt, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            prompt,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(app.input.clone()),
     ]);
     f.render_widget(Paragraph::new(line), inner);
@@ -157,21 +183,43 @@ fn draw_menu(f: &mut Frame, app: &App, input_area: Rect) {
     let inner = block.inner(rect);
     f.render_widget(block, rect);
 
-    let lines: Vec<TLine> = comps.iter().take(8).enumerate().map(|(i, c)| {
-        let sel = i == app.menu_sel.min(comps.len().saturating_sub(1));
-        let base = if sel {
-            Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-        let name = format!(" /{:<9}", c.name);
-        let args = format!("{:<31}", c.args);
-        TLine::from(vec![
-            Span::styled(name, base),
-            Span::styled(args, if sel { base } else { Style::default().fg(FAINT) }),
-            Span::styled(c.desc.to_string(), if sel { base } else { Style::default().fg(MUTED) }),
-        ])
-    }).collect();
+    let lines: Vec<TLine> = comps
+        .iter()
+        .take(8)
+        .enumerate()
+        .map(|(i, c)| {
+            let sel = i == app.menu_sel.min(comps.len().saturating_sub(1));
+            let base = if sel {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(ACCENT)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            let name = format!(" /{:<9}", c.name);
+            let args = format!("{:<31}", c.args);
+            TLine::from(vec![
+                Span::styled(name, base),
+                Span::styled(
+                    args,
+                    if sel {
+                        base
+                    } else {
+                        Style::default().fg(FAINT)
+                    },
+                ),
+                Span::styled(
+                    c.desc.to_string(),
+                    if sel {
+                        base
+                    } else {
+                        Style::default().fg(MUTED)
+                    },
+                ),
+            ])
+        })
+        .collect();
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -193,18 +241,26 @@ fn draw_panel(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(MUTED));
     let inner = block.inner(rows[0]);
     f.render_widget(block, rows[0]);
-    let items: Vec<TLine> = app.suggestions.iter().enumerate().map(|(i, t)| {
-        let selected = i == app.sel;
-        let style = if selected {
-            Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(phase_color(t.phase))
-        };
-        TLine::from(vec![
-            Span::styled(if selected { "▸ " } else { "  " }, style),
-            Span::styled(t.name.to_string(), style),
-        ])
-    }).collect();
+    let items: Vec<TLine> = app
+        .suggestions
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let selected = i == app.sel;
+            let style = if selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(ACCENT)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(phase_color(t.phase))
+            };
+            TLine::from(vec![
+                Span::styled(if selected { "▸ " } else { "  " }, style),
+                Span::styled(t.name.to_string(), style),
+            ])
+        })
+        .collect();
     f.render_widget(Paragraph::new(items).wrap(Wrap { trim: true }), inner);
 
     let block2 = Block::default()
@@ -214,36 +270,63 @@ fn draw_panel(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(MUTED));
     let inner2 = block2.inner(rows[1]);
     f.render_widget(block2, rows[1]);
-    f.render_widget(Paragraph::new(context_lines(app)).wrap(Wrap { trim: true }), inner2);
+    f.render_widget(
+        Paragraph::new(context_lines(app)).wrap(Wrap { trim: true }),
+        inner2,
+    );
 }
 
 fn context_lines(app: &App) -> Vec<TLine<'static>> {
     let mut out = vec![];
     match &app.focus {
         Some(ip) => {
-            out.push(TLine::from(Span::styled(format!("host {ip}"), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))));
+            out.push(TLine::from(Span::styled(
+                format!("host {ip}"),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )));
             if let Some(h) = app.eng.hosts.get(ip) {
                 if let Some(os) = &h.os {
-                    out.push(TLine::from(Span::styled(os.clone(), Style::default().fg(MUTED))));
+                    out.push(TLine::from(Span::styled(
+                        os.clone(),
+                        Style::default().fg(MUTED),
+                    )));
                 }
-                let ports: Vec<String> = h.open().map(|s| format!("{}/{}", s.port, s.name)).collect();
+                let ports: Vec<String> =
+                    h.open().map(|s| format!("{}/{}", s.port, s.name)).collect();
                 for chunk in ports.chunks(2) {
-                    out.push(TLine::from(Span::styled(chunk.join("  "), Style::default().fg(Color::White))));
+                    out.push(TLine::from(Span::styled(
+                        chunk.join("  "),
+                        Style::default().fg(Color::White),
+                    )));
                 }
                 if h.compromised {
-                    out.push(TLine::from(Span::styled("OWNED", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))));
+                    out.push(TLine::from(Span::styled(
+                        "OWNED",
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD),
+                    )));
                 }
             }
         }
-        None => out.push(TLine::from(Span::styled("no host focused", Style::default().fg(MUTED)))),
+        None => out.push(TLine::from(Span::styled(
+            "no host focused",
+            Style::default().fg(MUTED),
+        ))),
     }
     if let Some(d) = &app.eng.domain.fqdn {
         out.push(TLine::from(""));
-        out.push(TLine::from(Span::styled(format!("domain {d}"), Style::default().fg(Color::Yellow))));
+        out.push(TLine::from(Span::styled(
+            format!("domain {d}"),
+            Style::default().fg(Color::Yellow),
+        )));
     }
     let ncreds = app.eng.creds.len();
     if ncreds > 0 {
-        out.push(TLine::from(Span::styled(format!("{ncreds} credential(s)"), Style::default().fg(Color::Green))));
+        out.push(TLine::from(Span::styled(
+            format!("{ncreds} credential(s)"),
+            Style::default().fg(Color::Green),
+        )));
     }
     out
 }
@@ -251,30 +334,48 @@ fn context_lines(app: &App) -> Vec<TLine<'static>> {
 fn draw_help(f: &mut Frame, area: Rect) {
     let w = 68u16.min(area.width.saturating_sub(4));
     let h = 26u16.min(area.height.saturating_sub(2));
-    let rect = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
+    let rect = Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    };
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(Span::styled(" warden · help ", Style::default().fg(ACCENT)))
+        .title(Span::styled(" shrike · help ", Style::default().fg(ACCENT)))
         .border_style(Style::default().fg(ACCENT));
     let mut text = vec![hl("Keys")];
     for (k, v) in [
         ("Tab", "run highlighted suggestion / accept completion"),
         ("↑ ↓", "move selection (menu or suggestions)"),
         ("/", "open the command menu"),
-        ("PgUp/PgDn", "scroll · Ctrl-C cancel jobs / quit · Ctrl-G panel"),
-    ] { text.push(row(k, v)); }
+        (
+            "PgUp/PgDn",
+            "scroll · Ctrl-C cancel jobs / quit · Ctrl-G panel",
+        ),
+    ] {
+        text.push(row(k, v));
+    }
     text.push(TLine::from(""));
     text.push(hl("Commands"));
     for c in palette::COMMANDS {
         text.push(row(&format!("/{} {}", c.name, c.args), c.desc));
     }
-    f.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: true }), rect);
+    f.render_widget(
+        Paragraph::new(text).block(block).wrap(Wrap { trim: true }),
+        rect,
+    );
 }
 
 fn hl(s: &str) -> TLine<'static> {
-    TLine::from(Span::styled(s.to_string(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+    TLine::from(Span::styled(
+        s.to_string(),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ))
 }
 fn row(k: &str, v: &str) -> TLine<'static> {
     TLine::from(vec![

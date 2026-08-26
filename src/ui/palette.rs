@@ -67,7 +67,7 @@ pub fn parse(line: &str) -> Action {
         "cred" | "creds" => AddCred(rest),
         "harvest" | "loot" => Harvest(rest),
         "set" => {
-            let (k, v) = rest.split_once(|c| c == ' ' || c == '=').unwrap_or((rest.as_str(), ""));
+            let (k, v) = rest.split_once([' ', '=']).unwrap_or((rest.as_str(), ""));
             Set(k.trim().to_string(), v.trim().to_string())
         }
         "suggest" | "next" | "s" => Suggest,
@@ -96,25 +96,120 @@ pub struct Cmd {
 
 /// The command registry shown in the autocomplete menu.
 pub static COMMANDS: &[Cmd] = &[
-    Cmd { name: "suggest",  args: "",                     desc: "recompute next-step suggestions",       aliases: &["next", "s"] },
-    Cmd { name: "run",      args: "<tool-id>",            desc: "run a catalog tool",                    aliases: &["r"] },
-    Cmd { name: "raw",      args: "<command>",            desc: "run an arbitrary shell command",        aliases: &["sh", "!"] },
-    Cmd { name: "target",   args: "<ip|cidr|file>",       desc: "add targets to scope",                  aliases: &["add"] },
-    Cmd { name: "import",   args: "<nmap.xml>",           desc: "ingest an nmap -oX scan",               aliases: &[] },
-    Cmd { name: "focus",    args: "<ip>",                 desc: "set the current host context",          aliases: &["host", "use"] },
-    Cmd { name: "cred",     args: "[dom/]user:secret",    desc: "add a credential (hash or password)",   aliases: &["creds"] },
-    Cmd { name: "harvest",  args: "<file|text>",          desc: "scrape creds & intel from output",      aliases: &["loot"] },
-    Cmd { name: "payload",  args: "<id> [lhost] [lport] [+xform]", desc: "generate a shell payload",     aliases: &["gen", "rev"] },
-    Cmd { name: "msf",      args: "<id> [lhost] [lport]", desc: "build an msfvenom command + handler",   aliases: &["msfvenom"] },
-    Cmd { name: "payloads", args: "[filter]",             desc: "list available payloads",               aliases: &[] },
-    Cmd { name: "set",      args: "<key> <value>",        desc: "set proxy/iface/domain/dc/lhost/lport", aliases: &[] },
-    Cmd { name: "phase",    args: "[name]",               desc: "filter suggestions to a phase",         aliases: &["p"] },
-    Cmd { name: "panel",    args: "",                     desc: "toggle the dashboard side panel",       aliases: &["dash"] },
-    Cmd { name: "cancel",   args: "[job-id]",             desc: "cancel a running job (or all)",         aliases: &["stop", "kill"] },
-    Cmd { name: "export",   args: "",                     desc: "write notes.md now",                    aliases: &["notes"] },
-    Cmd { name: "star",     args: "",                     desc: "star the last command",                 aliases: &[] },
-    Cmd { name: "help",     args: "",                     desc: "show help",                             aliases: &["h", "?"] },
-    Cmd { name: "quit",     args: "",                     desc: "save and exit",                         aliases: &["q", "exit"] },
+    Cmd {
+        name: "suggest",
+        args: "",
+        desc: "recompute next-step suggestions",
+        aliases: &["next", "s"],
+    },
+    Cmd {
+        name: "run",
+        args: "<tool-id>",
+        desc: "run a catalog tool",
+        aliases: &["r"],
+    },
+    Cmd {
+        name: "raw",
+        args: "<command>",
+        desc: "run an arbitrary shell command",
+        aliases: &["sh", "!"],
+    },
+    Cmd {
+        name: "target",
+        args: "<ip|cidr|file>",
+        desc: "add targets to scope",
+        aliases: &["add"],
+    },
+    Cmd {
+        name: "import",
+        args: "<nmap.xml>",
+        desc: "ingest an nmap -oX scan",
+        aliases: &[],
+    },
+    Cmd {
+        name: "focus",
+        args: "<ip>",
+        desc: "set the current host context",
+        aliases: &["host", "use"],
+    },
+    Cmd {
+        name: "cred",
+        args: "[dom/]user:secret",
+        desc: "add a credential (hash or password)",
+        aliases: &["creds"],
+    },
+    Cmd {
+        name: "harvest",
+        args: "<file|text>",
+        desc: "scrape creds & intel from output",
+        aliases: &["loot"],
+    },
+    Cmd {
+        name: "payload",
+        args: "<id> [lhost] [lport] [+xform]",
+        desc: "generate a shell payload",
+        aliases: &["gen", "rev"],
+    },
+    Cmd {
+        name: "msf",
+        args: "<id> [lhost] [lport]",
+        desc: "build an msfvenom command + handler",
+        aliases: &["msfvenom"],
+    },
+    Cmd {
+        name: "payloads",
+        args: "[filter]",
+        desc: "list available payloads",
+        aliases: &[],
+    },
+    Cmd {
+        name: "set",
+        args: "<key> <value>",
+        desc: "set proxy/iface/domain/dc/lhost/lport",
+        aliases: &[],
+    },
+    Cmd {
+        name: "phase",
+        args: "[name]",
+        desc: "filter suggestions to a phase",
+        aliases: &["p"],
+    },
+    Cmd {
+        name: "panel",
+        args: "",
+        desc: "toggle the dashboard side panel",
+        aliases: &["dash"],
+    },
+    Cmd {
+        name: "cancel",
+        args: "[job-id]",
+        desc: "cancel a running job (or all)",
+        aliases: &["stop", "kill"],
+    },
+    Cmd {
+        name: "export",
+        args: "",
+        desc: "write notes.md now",
+        aliases: &["notes"],
+    },
+    Cmd {
+        name: "star",
+        args: "",
+        desc: "star the last command",
+        aliases: &[],
+    },
+    Cmd {
+        name: "help",
+        args: "",
+        desc: "show help",
+        aliases: &["h", "?"],
+    },
+    Cmd {
+        name: "quit",
+        args: "",
+        desc: "save and exit",
+        aliases: &["q", "exit"],
+    },
 ];
 
 /// Completions matching the current input (which must start with '/').

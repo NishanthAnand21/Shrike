@@ -188,12 +188,18 @@ impl Tool {
             return false;
         }
         if let Some(needle) = a.service_like {
-            if !h.open().any(|s| s.name.to_ascii_lowercase().contains(needle)) {
+            if !h
+                .open()
+                .any(|s| s.name.to_ascii_lowercase().contains(needle))
+            {
                 return false;
             }
         }
         if let Some(needle) = a.banner_like {
-            if !h.open().any(|s| s.banner().to_ascii_lowercase().contains(needle)) {
+            if !h
+                .open()
+                .any(|s| s.banner().to_ascii_lowercase().contains(needle))
+            {
                 return false;
             }
         }
@@ -259,12 +265,26 @@ impl Ctx {
         for (k, v) in &eng.wordlists {
             c.set(k, v.clone());
         }
-        c.set("wordlist", eng.wordlists.get("wordlist").cloned().unwrap_or_else(||
-            "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt".into()));
-        c.set("userlist", eng.wordlists.get("userlist").cloned().unwrap_or_else(||
-            "users.txt".into()));
-        c.set("passlist", eng.wordlists.get("passlist").cloned().unwrap_or_else(||
-            "/usr/share/wordlists/rockyou.txt".into()));
+        c.set(
+            "wordlist",
+            eng.wordlists.get("wordlist").cloned().unwrap_or_else(|| {
+                "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt".into()
+            }),
+        );
+        c.set(
+            "userlist",
+            eng.wordlists
+                .get("userlist")
+                .cloned()
+                .unwrap_or_else(|| "users.txt".into()),
+        );
+        c.set(
+            "passlist",
+            eng.wordlists
+                .get("passlist")
+                .cloned()
+                .unwrap_or_else(|| "/usr/share/wordlists/rockyou.txt".into()),
+        );
 
         if let Some(h) = host {
             c.set("ip", h.ip.clone());

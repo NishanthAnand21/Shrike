@@ -1,4 +1,4 @@
-# Warden — Encoding & Obfuscation Layer Research
+# Shrike — Encoding & Obfuscation Layer Research
 
 Scope: publicly documented pentest-curriculum encoding/obfuscation transforms and
 delivery/staging mechanics for the payload generator. **Out of scope** (do not

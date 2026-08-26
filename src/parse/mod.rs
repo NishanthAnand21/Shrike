@@ -2,5 +2,3 @@
 
 pub mod intel;
 pub mod nmap;
-
-

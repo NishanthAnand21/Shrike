@@ -1,6 +1,7 @@
 //! Extract identity & credential intel from arbitrary tool output and notes.
 //! This is deliberately conservative: false credentials waste time downstream.
 
+#![allow(clippy::regex_creation_in_loops)] // re! caches each Regex in a OnceLock
 use crate::model::state::Engagement;
 use crate::model::{Credential, Host, SecretKind};
 use base64::Engine;
@@ -15,10 +16,10 @@ macro_rules! re {
 }
 
 const NOISE: &[&str] = &[
-    "http", "https", "ftp", "smb", "note", "url", "path", "size", "status", "version",
-    "hash", "key", "id", "date", "time", "port", "host", "name", "type", "domain",
-    "flags", "error", "warning", "info", "usage", "example", "default", "null", "none",
-    "password", "username", "user", "pass",
+    "http", "https", "ftp", "smb", "note", "url", "path", "size", "status", "version", "hash",
+    "key", "id", "date", "time", "port", "host", "name", "type", "domain", "flags", "error",
+    "warning", "info", "usage", "example", "default", "null", "none", "password", "username",
+    "user", "pass",
 ];
 
 fn is_noise(s: &str) -> bool {
@@ -29,17 +30,23 @@ fn is_noise(s: &str) -> bool {
 /// If `s` decodes from base64 to printable text distinct from itself, return it.
 pub fn maybe_b64(s: &str) -> Option<String> {
     let t = s.trim();
-    if t.len() < 8 || !t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=') {
+    if t.len() < 8
+        || !t
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
+    {
         return None;
     }
     let padded = {
         let mut p = t.to_string();
-        while p.len() % 4 != 0 {
+        while !p.len().is_multiple_of(4) {
             p.push('=');
         }
         p
     };
-    let raw = base64::engine::general_purpose::STANDARD.decode(padded.as_bytes()).ok()?;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(padded.as_bytes())
+        .ok()?;
     let txt = String::from_utf8(raw).ok()?;
     let txt = txt.trim().to_string();
     if txt.len() >= 3
@@ -59,7 +66,12 @@ pub fn enrich_from_hosts(eng: &mut Engagement) {
     let mut computers = vec![];
     let mut dc_ips = vec![];
     for h in eng.hosts.values() {
-        let mut blob = h.host_scripts.values().cloned().collect::<Vec<_>>().join("\n");
+        let mut blob = h
+            .host_scripts
+            .values()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         for s in &h.services {
             for v in s.scripts.values() {
                 blob.push('\n');
@@ -109,8 +121,11 @@ pub fn harvest(eng: &mut Engagement, text: &str, source: &str) -> usize {
     let mut added = 0;
 
     // Domains
-    for c in re!(DOMN, r"\b((?:[a-z0-9-]+\.)+(?:local|exam|corp|lan|internal|htb))\b")
-        .captures_iter(&text.to_ascii_lowercase())
+    for c in re!(
+        DOMN,
+        r"\b((?:[a-z0-9-]+\.)+(?:local|exam|corp|lan|internal|htb))\b"
+    )
+    .captures_iter(&text.to_ascii_lowercase())
     {
         if eng.domain.fqdn.is_none() {
             eng.domain.fqdn = Some(c[1].to_string());
@@ -215,7 +230,10 @@ mod tests {
 
     #[test]
     fn base64_admin_password_decodes() {
-        assert_eq!(maybe_b64("WmVicmFMaW9uR2lyYWZmZTAxMAo").as_deref(), Some("ZebraLionGiraffe010"));
+        assert_eq!(
+            maybe_b64("WmVicmFMaW9uR2lyYWZmZTAxMAo").as_deref(),
+            Some("ZebraLionGiraffe010")
+        );
         assert_eq!(maybe_b64("nothashere"), None);
     }
 
@@ -227,9 +245,18 @@ mod tests {
                     NT: 5883fe1b8f0912b3ae14d4115e6b77b4\n";
         let n = harvest(&mut eng, blob, "notes");
         assert!(n >= 3, "expected >=3 creds, got {n}");
-        assert!(eng.creds.iter().any(|c| c.user == "r.andrews" && c.secret == "BusyOfficeWorker890"));
-        assert!(eng.creds.iter().any(|c| c.user == "l.evgeny" && c.secret == "ForgeBrightJuliet536"));
-        assert!(eng.creds.iter().any(|c| c.kind == crate::model::SecretKind::NtHash));
+        assert!(eng
+            .creds
+            .iter()
+            .any(|c| c.user == "r.andrews" && c.secret == "BusyOfficeWorker890"));
+        assert!(eng
+            .creds
+            .iter()
+            .any(|c| c.user == "l.evgeny" && c.secret == "ForgeBrightJuliet536"));
+        assert!(eng
+            .creds
+            .iter()
+            .any(|c| c.kind == crate::model::SecretKind::NtHash));
     }
 
     #[test]
@@ -238,7 +265,11 @@ mod tests {
         let blob = "<DomainUsername>administrator</DomainUsername>\
                     <DomainPassword>WmVicmFMaW9uR2lyYWZmZTAxMAo</DomainPassword>";
         harvest(&mut eng, blob, "unattend.xml");
-        let c = eng.creds.iter().find(|c| c.user == "administrator").expect("admin cred");
+        let c = eng
+            .creds
+            .iter()
+            .find(|c| c.user == "administrator")
+            .expect("admin cred");
         assert_eq!(c.decoded.as_deref(), Some("ZebraLionGiraffe010"));
     }
 }

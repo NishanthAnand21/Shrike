@@ -12,12 +12,16 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "warden", version, about = "Recon-to-exploitation orchestration framework")]
+#[command(
+    name = "shrike",
+    version,
+    about = "Recon-to-exploitation orchestration framework"
+)]
 struct Cli {
     /// Engagement name (also the workspace directory name if --workspace is omitted).
     #[arg(short, long, default_value = "engagement")]
     name: String,
-    /// Workspace directory (created if absent). Defaults to ./<name>-warden.
+    /// Workspace directory (created if absent). Defaults to ./<name>-shrike.
     #[arg(short, long)]
     workspace: Option<PathBuf>,
     /// Seed targets: IPs/CIDRs, or a path to a hosts file.
@@ -40,7 +44,7 @@ async fn main() -> Result<()> {
     let ws_path = cli
         .workspace
         .clone()
-        .unwrap_or_else(|| PathBuf::from(format!("{}-warden", cli.name)));
+        .unwrap_or_else(|| PathBuf::from(format!("{}-shrike", cli.name)));
 
     let (ws, mut eng) = engine::Workspace::open_or_create(&ws_path, &cli.name)?;
 
@@ -52,7 +56,10 @@ async fn main() -> Result<()> {
     for path in &cli.import {
         let xml = std::fs::read_to_string(path)?;
         let n = parse::intel::ingest_nmap(&mut eng, &xml)?;
-        eng.note(model::Phase::PortScan, format!("imported {n} hosts from {}", path.display()));
+        eng.note(
+            model::Phase::PortScan,
+            format!("imported {n} hosts from {}", path.display()),
+        );
     }
     eng.recompute_segments();
     ws.save(&eng)?;

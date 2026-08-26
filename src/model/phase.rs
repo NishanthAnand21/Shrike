@@ -27,10 +27,22 @@ pub enum Phase {
 
 impl Phase {
     pub const ALL: [Phase; 16] = [
-        Phase::Discovery, Phase::PortScan, Phase::ServiceEnum, Phase::WebEnum,
-        Phase::DirEnum, Phase::ApiEnum, Phase::VulnScan, Phase::SmbEnum,
-        Phase::AdEnum, Phase::Exploit, Phase::CredAccess, Phase::Cracking,
-        Phase::Pivot, Phase::PostExploit, Phase::PrivEsc, Phase::Loot,
+        Phase::Discovery,
+        Phase::PortScan,
+        Phase::ServiceEnum,
+        Phase::WebEnum,
+        Phase::DirEnum,
+        Phase::ApiEnum,
+        Phase::VulnScan,
+        Phase::SmbEnum,
+        Phase::AdEnum,
+        Phase::Exploit,
+        Phase::CredAccess,
+        Phase::Cracking,
+        Phase::Pivot,
+        Phase::PostExploit,
+        Phase::PrivEsc,
+        Phase::Loot,
     ];
 
     pub fn slug(self) -> &'static str {

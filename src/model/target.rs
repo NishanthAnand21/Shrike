@@ -88,18 +88,28 @@ impl Service {
         self.name.contains("https")
             || self.name.contains("ssl")
             || self.extra.to_ascii_lowercase().contains("tls")
-            || matches!(self.port, 443 | 8443 | 9443 | 10443 | 636 | 3269 | 5986 | 993 | 995)
+            || matches!(
+                self.port,
+                443 | 8443 | 9443 | 10443 | 636 | 3269 | 5986 | 993 | 995
+            )
     }
 
     pub fn is_web(&self) -> bool {
         self.name.contains("http")
             || self.product.to_ascii_lowercase().contains("httpd")
-            || matches!(self.port, 80 | 443 | 8000 | 8008 | 8080 | 8081 | 8443 | 8888 | 3000 | 5000 | 9090)
+            || matches!(
+                self.port,
+                80 | 443 | 8000 | 8008 | 8080 | 8081 | 8443 | 8888 | 3000 | 5000 | 9090
+            )
     }
 
     /// Scheme to use when building a URL for this service.
     pub fn scheme(&self) -> &'static str {
-        if self.is_tls() { "https" } else { "http" }
+        if self.is_tls() {
+            "https"
+        } else {
+            "http"
+        }
     }
 
     pub fn url(&self, ip: &str) -> String {
@@ -113,12 +123,16 @@ impl Service {
     }
 
     pub fn banner(&self) -> String {
-        [self.product.as_str(), self.version.as_str(), self.extra.as_str()]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ")
+        [
+            self.product.as_str(),
+            self.version.as_str(),
+            self.extra.as_str(),
+        ]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ")
     }
 }
 
@@ -219,7 +233,11 @@ impl Host {
         }
         self.host_scripts.extend(other.host_scripts);
         for svc in other.services {
-            match self.services.iter_mut().find(|s| s.port == svc.port && s.proto == svc.proto) {
+            match self
+                .services
+                .iter_mut()
+                .find(|s| s.port == svc.port && s.proto == svc.proto)
+            {
                 Some(existing) => {
                     if svc.banner().len() > existing.banner().len() {
                         existing.product = svc.product;

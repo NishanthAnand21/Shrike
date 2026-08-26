@@ -56,9 +56,18 @@ pub struct Job {
 /// Streamed back to the UI. One job produces: Started, many Line, then Finished.
 #[derive(Debug, Clone)]
 pub enum JobEvent {
-    Started { id: JobId },
-    Line { id: JobId, text: String },
-    Finished { id: JobId, status: JobStatus, duration_ms: u64 },
+    Started {
+        id: JobId,
+    },
+    Line {
+        id: JobId,
+        text: String,
+    },
+    Finished {
+        id: JobId,
+        status: JobStatus,
+        duration_ms: u64,
+    },
 }
 
 pub struct Runner {
@@ -116,7 +125,11 @@ impl Runner {
     }
 }
 
-async fn run_one(job: &Job, tx: &mpsc::UnboundedSender<JobEvent>, token: CancellationToken) -> JobStatus {
+async fn run_one(
+    job: &Job,
+    tx: &mpsc::UnboundedSender<JobEvent>,
+    token: CancellationToken,
+) -> JobStatus {
     // Run through a shell so operators can use pipes/redirection in templates.
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c")
@@ -129,7 +142,10 @@ async fn run_one(job: &Job, tx: &mpsc::UnboundedSender<JobEvent>, token: Cancell
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            let _ = tx.send(JobEvent::Line { id: job.id, text: format!("!! failed to spawn: {e}") });
+            let _ = tx.send(JobEvent::Line {
+                id: job.id,
+                text: format!("!! failed to spawn: {e}"),
+            });
             return JobStatus::Failed;
         }
     };

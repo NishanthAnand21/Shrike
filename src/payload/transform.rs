@@ -66,7 +66,8 @@ impl Kind {
     }
 }
 
-const B64: base64::engine::general_purpose::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+const B64: base64::engine::general_purpose::GeneralPurpose =
+    base64::engine::general_purpose::STANDARD;
 
 pub fn apply(kind: Kind, input: &str) -> String {
     match kind {
@@ -77,7 +78,11 @@ pub fn apply(kind: Kind, input: &str) -> String {
             let blob = B64.encode(&utf16);
             format!("powershell -nop -w hidden -enc {blob}")
         }
-        Kind::Hex => input.as_bytes().iter().map(|b| format!("{b:02x}")).collect(),
+        Kind::Hex => input
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
         Kind::UrlEncode => url_encode(input),
         Kind::DoubleUrlEncode => url_encode(&url_encode(input)),
         Kind::XorPsStub => xor_ps_stub(input, 0xAA),
@@ -101,7 +106,9 @@ fn url_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -136,7 +143,10 @@ mod tests {
         let blob = out.rsplit(' ').next().unwrap();
         let raw = B64.decode(blob).unwrap();
         // Decode UTF-16LE back.
-        let u16s: Vec<u16> = raw.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let u16s: Vec<u16> = raw
+            .chunks(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
         assert_eq!(String::from_utf16(&u16s).unwrap(), "whoami");
     }
 

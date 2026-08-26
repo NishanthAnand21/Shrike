@@ -1,6 +1,6 @@
-# Using warden
+# Using shrike
 
-warden takes you from a list of IPs to a written-up engagement: it ingests scans,
+shrike takes you from a list of IPs to a written-up engagement: it ingests scans,
 maps the network, suggests the next step, runs the command, captures the output,
 harvests any credentials back into its own state, and generates payloads — all from
 one terminal interface.
@@ -18,13 +18,13 @@ one terminal interface.
 ## Launching
 
 ```bash
-warden [OPTIONS]
+shrike [OPTIONS]
 ```
 
 | flag | meaning |
 |---|---|
 | `-n, --name <NAME>` | engagement name (default `engagement`) |
-| `-w, --workspace <DIR>` | workspace directory (default `./<name>-warden`) |
+| `-w, --workspace <DIR>` | workspace directory (default `./<name>-shrike`) |
 | `-t, --targets <SPEC>` | seed targets — repeatable; an IP, a CIDR, or a hosts file |
 | `--import <nmap.xml>` | ingest an existing nmap `-oX` scan at startup — repeatable |
 | `-j, --parallel <N>` | max commands to run at once (default 8) |
@@ -33,16 +33,16 @@ warden [OPTIONS]
 Examples:
 ```bash
 # start fresh against a subnet
-warden --name acme --targets 192.168.50.0/24
+shrike --name acme --targets 192.168.50.0/24
 
 # resume yesterday's engagement (same workspace = same state)
-warden --name acme --workspace acme-warden
+shrike --name acme --workspace acme-shrike
 
 # ingest a scan you already ran, then work interactively
-warden --name acme --import services.xml --targets hosts.txt
+shrike --name acme --import services.xml --targets hosts.txt
 
 # just print the plan, no UI
-warden --targets hosts.txt --import services.xml --plan
+shrike --targets hosts.txt --import services.xml --plan
 ```
 
 Re-launching with the same workspace **resumes** everything — hosts, credentials,
@@ -55,8 +55,8 @@ command history, notes.
 A minimalist terminal UI:
 
 ```
-  warden  ·  4 hosts · 21 open ports · 2 creds · 6 cmds        ● 1 running
-  ✳ warden — recon-to-exploitation orchestrator
+  shrike  ·  4 hosts · 21 open ports · 2 creds · 6 cmds        ● 1 running
+  ✳ shrike — recon-to-exploitation orchestrator
   … transcript of commands and their output scrolls here …
   Tab ⇥ run "nmap all 65535 ports" · / for menu · /suggest · /help
 ╭ 192.168.133.206 ─────────────────────────────────────────────╮
@@ -127,11 +127,11 @@ This mirrors a real internal/AD engagement.
 /target 192.168.50.0/24
 /run nmap-full            # full-port sweep on the focused host (or /raw your own nmap -oX)
 ```
-When any `nmap … -oX` job finishes, warden ingests the XML automatically: hosts,
+When any `nmap … -oX` job finishes, shrike ingests the XML automatically: hosts,
 services, OS, and the network topology (which segments are directly routable vs.
 **pivot-required**).
 
-**2 — Enumerate a host.** Focus it and let warden suggest:
+**2 — Enumerate a host.** Focus it and let shrike suggest:
 ```
 /focus 192.168.50.20
 /suggest                 # e.g. whatweb, feroxbuster, nxc-smb-null, …
@@ -140,7 +140,7 @@ Tab                      # run the top suggestion
 Only tools that apply to that host's open ports/services are offered.
 
 **3 — Grab a foothold's loot.** Every command's output is auto-harvested. If a scan or
-an FTP mirror reveals `Username: r.andrews / Password: …`, warden extracts it and says
+an FTP mirror reveals `Username: r.andrews / Password: …`, shrike extracts it and says
 so. You can also feed it a file:
 ```
 /harvest loot/192.168.50.20-ftp/notes.txt
@@ -155,7 +155,7 @@ Base64 secrets are decoded automatically; a 32-hex secret is stored as an NT has
 /focus 192.168.50.20
 /run evil-winrm          # prints the exact command (interactive — see note below)
 ```
-When netexec reports `(Pwn3d!)`, warden marks that host **OWNED**.
+When netexec reports `(Pwn3d!)`, shrike marks that host **OWNED**.
 
 **5 — Kerberos.** If a DC was found:
 ```
@@ -165,7 +165,7 @@ When netexec reports `(Pwn3d!)`, warden marks that host **OWNED**.
 /run hashcat-tgs        # crack the TGS-REP output
 ```
 
-**6 — Pivot into an unreachable segment.** warden already flagged `172.16.x.0/24` as
+**6 — Pivot into an unreachable segment.** shrike already flagged `172.16.x.0/24` as
 pivot-required. Set the tunnel and it prefixes network tools with proxychains:
 ```
 /set proxy 127.0.0.1:1080
@@ -177,7 +177,7 @@ after every command, grouped by phase, with the topology map and credential tabl
 `/export` forces a refresh; `/star` marks the commands that mattered.
 
 > **Interactive tools** (evil-winrm, ftp, mssqlclient, psexec, wmiexec) need a real
-> TTY. warden detects these and *prints the exact command* for you to paste into a
+> TTY. shrike detects these and *prints the exact command* for you to paste into a
 > separate terminal, rather than capturing them as a batch job.
 
 ---
@@ -220,7 +220,7 @@ and — where relevant — a list of transforms you can append with `+`.
 ## The workspace on disk
 
 ```
-<name>-warden/
+<name>-shrike/
   engagement.json     full state, rewritten atomically after every command (resumable)
   notes.md            phase-grouped report: topology, creds, every command + output ref
   targets/<ip>/<phase>/<id>-<tool>.txt    full captured output of each command
@@ -228,7 +228,7 @@ and — where relevant — a list of transforms you can append with `+`.
 ```
 
 Delete the directory to start over; keep it to resume. `notes.md` and
-`engagement.json` are safe to read while warden is running.
+`engagement.json` are safe to read while shrike is running.
 
 ---
 
@@ -242,5 +242,5 @@ Delete the directory to start over; keep it to resume. `notes.md` and
   relevant tools.
 - **Star as you go.** `/star` after a command that produced something keeps the final
   report focused.
-- **It's an orchestrator, not an autopilot.** Every command is operator-initiated; warden
+- **It's an orchestrator, not an autopilot.** Every command is operator-initiated; shrike
   suggests and records, you decide. Only use it against systems you're authorized to test.

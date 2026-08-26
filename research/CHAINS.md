@@ -1,6 +1,6 @@
-# CHAINS.md — Warden Attack Chains
+# CHAINS.md — Shrike Attack Chains
 
-Decision graph for the Warden orchestrator. Each chain is an ordered list of
+Decision graph for the Shrike orchestrator. Each chain is an ordered list of
 `(condition) -> [suggested next tools/actions]`. Tool ids match `TOOLS.md`.
 Conditions are boolean facts the engine tracks in state (artifacts produced by
 prior tools). `->` means "when this becomes true, suggest these".

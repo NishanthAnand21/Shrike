@@ -1,12 +1,12 @@
 //! The interactive application: state, the async event loop, and action dispatch.
 
+use super::palette::{self, Action};
 use crate::catalog::{self, Ctx};
 use crate::engine::{Job, JobEvent, JobStatus, Runner, Workspace};
 use crate::model::state::{now_iso, Engagement, Record};
 use crate::model::{Credential, Phase, SecretKind};
 use crate::parse;
 use crate::payload::{self, transform};
-use super::palette::{self, Action};
 
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
@@ -27,9 +27,30 @@ pub struct Line {
 }
 
 impl Line {
-    pub fn plain(t: impl Into<String>) -> Self { Line { text: t.into(), color: Color::Gray, job: None, indent: false } }
-    pub fn c(t: impl Into<String>, c: Color) -> Self { Line { text: t.into(), color: c, job: None, indent: false } }
-    pub fn out(t: impl Into<String>, job: u64) -> Self { Line { text: t.into(), color: Color::White, job: Some(job), indent: true } }
+    pub fn plain(t: impl Into<String>) -> Self {
+        Line {
+            text: t.into(),
+            color: Color::Gray,
+            job: None,
+            indent: false,
+        }
+    }
+    pub fn c(t: impl Into<String>, c: Color) -> Self {
+        Line {
+            text: t.into(),
+            color: c,
+            job: None,
+            indent: false,
+        }
+    }
+    pub fn out(t: impl Into<String>, job: u64) -> Self {
+        Line {
+            text: t.into(),
+            color: Color::White,
+            job: Some(job),
+            indent: true,
+        }
+    }
 }
 
 /// Live bookkeeping for an in-flight job.
@@ -53,13 +74,13 @@ pub struct App {
     pub transcript: Vec<Line>,
     pub input: String,
     pub cursor: usize,
-    pub scroll: u16,          // lines scrolled up from the bottom
-    pub follow: bool,         // auto-scroll to newest
+    pub scroll: u16,           // lines scrolled up from the bottom
+    pub follow: bool,          // auto-scroll to newest
     pub focus: Option<String>, // current host IP context
     pub phase_filter: Option<Phase>,
     pub live: HashMap<u64, Live>,
     pub suggestions: Vec<&'static catalog::Tool>,
-    pub sel: usize,           // selected suggestion
+    pub sel: usize, // selected suggestion
     pub show_help: bool,
     pub show_panel: bool,
     pub menu_sel: usize,
@@ -71,7 +92,10 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
     let (tx, rx) = mpsc::unbounded_channel();
     let runner = Runner::new(parallel, tx);
     let mut app = App {
-        ws, eng, runner, rx,
+        ws,
+        eng,
+        runner,
+        rx,
         transcript: vec![],
         input: String::new(),
         cursor: 0,
@@ -102,8 +126,12 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
 
 impl App {
     fn banner(&mut self) {
-        self.transcript.push(Line::c("✳ warden — recon-to-exploitation orchestrator", Color::Cyan));
-        self.transcript.push(Line::plain(format!("  {}", self.ws.root.display())));
+        self.transcript.push(Line::c(
+            "✳ shrike — recon-to-exploitation orchestrator",
+            Color::Cyan,
+        ));
+        self.transcript
+            .push(Line::plain(format!("  {}", self.ws.root.display())));
         self.transcript.push(Line::plain(""));
     }
 
@@ -140,8 +168,15 @@ impl App {
                     }
                     return;
                 }
-                Char('u') => { self.input.clear(); self.cursor = 0; return; }
-                Char('g') => { self.show_panel = !self.show_panel; return; }
+                Char('u') => {
+                    self.input.clear();
+                    self.cursor = 0;
+                    return;
+                }
+                Char('g') => {
+                    self.show_panel = !self.show_panel;
+                    return;
+                }
                 _ => {}
             }
         }
@@ -161,21 +196,38 @@ impl App {
             }
             Up => {
                 if self.menu_active() {
-                    if self.menu_sel > 0 { self.menu_sel -= 1; }
-                } else if self.sel > 0 { self.sel -= 1; }
+                    if self.menu_sel > 0 {
+                        self.menu_sel -= 1;
+                    }
+                } else if self.sel > 0 {
+                    self.sel -= 1;
+                }
             }
             Down => {
                 if self.menu_active() {
                     let n = self.completions_len();
-                    if self.menu_sel + 1 < n { self.menu_sel += 1; }
-                } else if self.sel + 1 < self.suggestions.len() { self.sel += 1; }
+                    if self.menu_sel + 1 < n {
+                        self.menu_sel += 1;
+                    }
+                } else if self.sel + 1 < self.suggestions.len() {
+                    self.sel += 1;
+                }
             }
-            PageUp => { self.follow = false; self.scroll = self.scroll.saturating_add(10); }
+            PageUp => {
+                self.follow = false;
+                self.scroll = self.scroll.saturating_add(10);
+            }
             PageDown => {
                 self.scroll = self.scroll.saturating_sub(10);
-                if self.scroll == 0 { self.follow = true; }
+                if self.scroll == 0 {
+                    self.follow = true;
+                }
             }
-            Esc => { self.input.clear(); self.cursor = 0; self.show_help = false; }
+            Esc => {
+                self.input.clear();
+                self.cursor = 0;
+                self.show_help = false;
+            }
             Backspace => {
                 if self.cursor > 0 {
                     self.cursor -= 1;
@@ -183,8 +235,14 @@ impl App {
                     self.menu_sel = 0;
                 }
             }
-            Left => { self.cursor = self.cursor.saturating_sub(1); }
-            Right => { if self.cursor < self.input.len() { self.cursor += 1; } }
+            Left => {
+                self.cursor = self.cursor.saturating_sub(1);
+            }
+            Right => {
+                if self.cursor < self.input.len() {
+                    self.cursor += 1;
+                }
+            }
             Home => self.cursor = 0,
             End => self.cursor = self.input.len(),
             Char(c) => {
@@ -209,26 +267,41 @@ impl App {
                 }
                 self.push(Line::out(text, id));
             }
-            JobEvent::Finished { id, status, duration_ms } => {
+            JobEvent::Finished {
+                id,
+                status,
+                duration_ms,
+            } => {
                 self.finish_job(id, status, duration_ms);
             }
         }
     }
 
     fn finish_job(&mut self, id: u64, status: JobStatus, duration_ms: u64) {
-        let Some(live) = self.live.remove(&id) else { return };
+        let Some(live) = self.live.remove(&id) else {
+            return;
+        };
         let color = match status {
             JobStatus::Done(0) => Color::Green,
             JobStatus::Cancelled => Color::Yellow,
             _ => Color::Red,
         };
         self.push(Line::c(
-            format!("{} {} [{}] {}ms", status.symbol(), live.tool, live.command, duration_ms),
+            format!(
+                "{} {} [{}] {}ms",
+                status.symbol(),
+                live.tool,
+                live.command,
+                duration_ms
+            ),
             color,
         ));
 
         // Record it.
-        let exit = match status { JobStatus::Done(c) => Some(c), _ => None };
+        let exit = match status {
+            JobStatus::Done(c) => Some(c),
+            _ => None,
+        };
         let excerpt: Vec<String> = live.lines.iter().take(40).cloned().collect();
         let rec = Record {
             id: 0,
@@ -263,22 +336,45 @@ impl App {
             if let Ok(xml) = std::fs::read_to_string(&live.output_file) {
                 if xml.contains("<nmaprun") {
                     if let Ok(n) = parse::intel::ingest_nmap(&mut self.eng, &xml) {
-                        self.push(Line::c(format!("  ⇒ ingested {n} hosts from nmap XML"), Color::Cyan));
+                        self.push(Line::c(
+                            format!("  ⇒ ingested {n} hosts from nmap XML"),
+                            Color::Cyan,
+                        ));
                     }
                 }
             }
         }
         // Credential/intel harvest from any output.
         let before = self.eng.creds.len();
-        let added = parse::intel::harvest(&mut self.eng, blob, &format!("{} on {}",
-            live.tool, live.target.as_deref().unwrap_or("network")));
+        let added = parse::intel::harvest(
+            &mut self.eng,
+            blob,
+            &format!(
+                "{} on {}",
+                live.tool,
+                live.target.as_deref().unwrap_or("network")
+            ),
+        );
         parse::intel::enrich_from_hosts(&mut self.eng);
         if added > 0 {
-            self.push(Line::c(format!("  ⇒ recovered {added} credential(s)"), Color::Green));
-            let newlines: Vec<String> = self.eng.creds.iter().skip(before).map(|c| {
-                let extra = c.decoded.as_ref().map(|d| format!(" (decoded: {d})")).unwrap_or_default();
-                format!("     {} : {}{}", c.down_level(), c.secret, extra)
-            }).collect();
+            self.push(Line::c(
+                format!("  ⇒ recovered {added} credential(s)"),
+                Color::Green,
+            ));
+            let newlines: Vec<String> = self
+                .eng
+                .creds
+                .iter()
+                .skip(before)
+                .map(|c| {
+                    let extra = c
+                        .decoded
+                        .as_ref()
+                        .map(|d| format!(" (decoded: {d})"))
+                        .unwrap_or_default();
+                    format!("     {} : {}{}", c.down_level(), c.secret, extra)
+                })
+                .collect();
             for nl in newlines {
                 self.push(Line::c(nl, Color::Green));
             }
@@ -287,11 +383,16 @@ impl App {
         if blob.contains("Pwn3d!") {
             if let Some(t) = &live.target {
                 self.eng.host_mut(t).compromised = true;
-                self.push(Line::c(format!("  ⇒ {t} marked OWNED (admin access)"), Color::Magenta));
+                self.push(Line::c(
+                    format!("  ⇒ {t} marked OWNED (admin access)"),
+                    Color::Magenta,
+                ));
             }
         }
         if let Some(r) = self.eng.records.iter_mut().find(|r| r.id == rid) {
-            if added > 0 { r.findings.push(format!("{added} credential(s) recovered")); }
+            if added > 0 {
+                r.findings.push(format!("{added} credential(s) recovered"));
+            }
         }
         self.eng.recompute_segments();
     }
@@ -301,12 +402,19 @@ impl App {
         match action {
             Action::Quit => self.should_quit = true,
             Action::Help => self.show_help = true,
-            Action::Suggest => { self.refresh_suggestions(); self.print_suggestions(); }
+            Action::Suggest => {
+                self.refresh_suggestions();
+                self.print_suggestions();
+            }
             Action::RunTool(id) => self.run_tool_by_id(&id).await,
             Action::RunRaw(cmd) => self.run_raw(&cmd).await,
             Action::Focus(ip) => self.set_focus(&ip),
             Action::AddTarget(t) => match seed_target(&mut self.eng, &t) {
-                Ok(_) => { self.eng.recompute_segments(); self.push(Line::c(format!("+ target {t}"), Color::Cyan)); self.refresh_suggestions(); }
+                Ok(_) => {
+                    self.eng.recompute_segments();
+                    self.push(Line::c(format!("+ target {t}"), Color::Cyan));
+                    self.refresh_suggestions();
+                }
                 Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
             },
             Action::Import(path) => self.import(&path),
@@ -323,11 +431,16 @@ impl App {
             },
             Action::Star => self.star_last(),
             Action::Phase(p) => self.set_phase_filter(p),
-            Action::TogglePanel => { self.show_panel = !self.show_panel; }
+            Action::TogglePanel => {
+                self.show_panel = !self.show_panel;
+            }
             Action::Payload(spec) => self.gen_payload(&spec),
             Action::Msf(spec) => self.gen_msf(&spec),
             Action::Payloads(filter) => self.list_payloads(&filter),
-            Action::Unknown(c) => self.push(Line::c(format!("? unknown command /{c} — try /help"), Color::Yellow)),
+            Action::Unknown(c) => self.push(Line::c(
+                format!("? unknown command /{c} — try /help"),
+                Color::Yellow,
+            )),
         }
         let _ = self.ws.save(&self.eng);
     }
@@ -341,58 +454,112 @@ impl App {
     async fn run_tool_by_id(&mut self, id: &str) {
         match catalog::by_id(id) {
             Some(t) => self.run_tool(t).await,
-            None => self.push(Line::c(format!("? no tool '{id}' — /suggest to list"), Color::Yellow)),
+            None => self.push(Line::c(
+                format!("? no tool '{id}' — /suggest to list"),
+                Color::Yellow,
+            )),
         }
     }
 
     async fn run_tool(&mut self, tool: &'static catalog::Tool) {
-        let host = self.focus.as_ref().and_then(|ip| self.eng.hosts.get(ip)).cloned();
+        let host = self
+            .focus
+            .as_ref()
+            .and_then(|ip| self.eng.hosts.get(ip))
+            .cloned();
         let ctx = Ctx::from_engagement(&self.eng, host.as_ref(), None);
         match tool.render(&ctx) {
             Ok(cmd) => {
                 if tool.interactive {
-                    self.push(Line::c(format!("⚠ {} needs a real TTY — run it in a separate terminal:", tool.name), Color::Yellow));
+                    self.push(Line::c(
+                        format!(
+                            "⚠ {} needs a real TTY — run it in a separate terminal:",
+                            tool.name
+                        ),
+                        Color::Yellow,
+                    ));
                     self.push(Line::c(format!("  {cmd}"), Color::White));
                     return;
                 }
-                self.launch(tool.id, tool.phase, tool.speed.timeout_secs(),
-                    self.focus.clone(), cmd, tool.note).await;
+                self.launch(
+                    tool.id,
+                    tool.phase,
+                    tool.speed.timeout_secs(),
+                    self.focus.clone(),
+                    cmd,
+                    tool.note,
+                )
+                .await;
             }
             Err(missing) => {
                 self.push(Line::c(
-                    format!("… {} needs: {} — set them with /set or /cred, or /focus a host",
-                        tool.name, missing.join(", ")), Color::Yellow));
+                    format!(
+                        "… {} needs: {} — set them with /set or /cred, or /focus a host",
+                        tool.name,
+                        missing.join(", ")
+                    ),
+                    Color::Yellow,
+                ));
             }
         }
     }
 
     async fn run_raw(&mut self, cmd: &str) {
-        if cmd.is_empty() { return; }
+        if cmd.is_empty() {
+            return;
+        }
         let phase = self.phase_filter.unwrap_or(Phase::Exploit);
-        self.launch("raw", phase, 0, self.focus.clone(), cmd.to_string(), "").await;
+        self.launch("raw", phase, 0, self.focus.clone(), cmd.to_string(), "")
+            .await;
     }
 
-    async fn launch(&mut self, tool: &str, phase: Phase, timeout: u64,
-                    target: Option<String>, command: String, note: &str) {
+    async fn launch(
+        &mut self,
+        tool: &str,
+        phase: Phase,
+        timeout: u64,
+        target: Option<String>,
+        command: String,
+        note: &str,
+    ) {
         let id = self.eng.next_record_id.max(1);
         // Reserve the id space by bumping; the record is created on completion.
         self.eng.next_record_id = id + 1;
-        let out = match self.ws.output_file(id, target.as_deref(), phase.slug(), tool) {
+        let out = match self
+            .ws
+            .output_file(id, target.as_deref(), phase.slug(), tool)
+        {
             Ok(p) => p,
-            Err(e) => { self.push(Line::c(format!("! {e}"), Color::Red)); return; }
+            Err(e) => {
+                self.push(Line::c(format!("! {e}"), Color::Red));
+                return;
+            }
         };
         if !note.is_empty() {
             self.push(Line::c(format!("# {note}"), Color::DarkGray));
         }
         self.push(Line::c(format!("▶ #{id} {command}"), Color::Cyan));
-        self.live.insert(id, Live {
-            tool: tool.to_string(), phase, target: target.clone(),
-            command: command.clone(), status: JobStatus::Queued,
-            lines: vec![], output_file: out.clone(), record_id: None,
-        });
+        self.live.insert(
+            id,
+            Live {
+                tool: tool.to_string(),
+                phase,
+                target: target.clone(),
+                command: command.clone(),
+                status: JobStatus::Queued,
+                lines: vec![],
+                output_file: out.clone(),
+                record_id: None,
+            },
+        );
         self.runner.spawn(Job {
-            id, tool: tool.to_string(), phase, target,
-            command, output_file: out, timeout_secs: timeout,
+            id,
+            tool: tool.to_string(),
+            phase,
+            target,
+            command,
+            output_file: out,
+            timeout_secs: timeout,
         });
     }
 
@@ -401,7 +568,10 @@ impl App {
             self.focus = Some(ip.to_string());
             self.push(Line::c(format!("→ focus {ip}"), Color::Cyan));
         } else {
-            self.push(Line::c(format!("? no host {ip} in scope (/target to add)"), Color::Yellow));
+            self.push(Line::c(
+                format!("? no host {ip} in scope (/target to add)"),
+                Color::Yellow,
+            ));
         }
         self.refresh_suggestions();
     }
@@ -410,7 +580,10 @@ impl App {
         match std::fs::read_to_string(path) {
             Ok(xml) => match parse::intel::ingest_nmap(&mut self.eng, &xml) {
                 Ok(n) => {
-                    self.push(Line::c(format!("imported {n} hosts from {path}"), Color::Cyan));
+                    self.push(Line::c(
+                        format!("imported {n} hosts from {path}"),
+                        Color::Cyan,
+                    ));
                     self.eng.recompute_segments();
                     self.refresh_suggestions();
                 }
@@ -424,16 +597,25 @@ impl App {
         // domain/user:pass  |  user:pass  |  user:pass@domain
         let (idpart, secret) = match spec.split_once(':') {
             Some(x) => x,
-            None => { self.push(Line::c("usage: /cred [domain/]user:secret", Color::Yellow)); return; }
+            None => {
+                self.push(Line::c("usage: /cred [domain/]user:secret", Color::Yellow));
+                return;
+            }
         };
         let (domain, user) = if let Some((d, u)) = idpart.split_once('/') {
             (Some(d.to_string()), u.to_string())
-        } else { (None, idpart.to_string()) };
+        } else {
+            (None, idpart.to_string())
+        };
         let kind = if secret.len() == 32 && secret.chars().all(|c| c.is_ascii_hexdigit()) {
             SecretKind::NtHash
-        } else { SecretKind::Password };
+        } else {
+            SecretKind::Password
+        };
         let mut c = Credential::new(user, secret, kind, "operator");
-        if let Some(d) = domain { c = c.with_domain(d); }
+        if let Some(d) = domain {
+            c = c.with_domain(d);
+        }
         if parse::intel::maybe_b64(secret).is_some() {
             c.decoded = parse::intel::maybe_b64(secret);
         }
@@ -448,22 +630,37 @@ impl App {
     fn harvest(&mut self, arg: &str) {
         let text = if Path::new(arg).exists() {
             std::fs::read_to_string(arg).unwrap_or_default()
-        } else { arg.to_string() };
+        } else {
+            arg.to_string()
+        };
         let n = parse::intel::harvest(&mut self.eng, &text, "harvest");
         parse::intel::enrich_from_hosts(&mut self.eng);
-        self.push(Line::c(format!("harvested {n} credential(s)"), Color::Green));
+        self.push(Line::c(
+            format!("harvested {n} credential(s)"),
+            Color::Green,
+        ));
         self.refresh_suggestions();
     }
 
     fn set_var(&mut self, k: &str, v: &str) {
         match k.to_ascii_lowercase().as_str() {
-            "proxy" => { self.eng.proxy = if v.is_empty() { None } else { Some(v.to_string()) }; }
+            "proxy" => {
+                self.eng.proxy = if v.is_empty() {
+                    None
+                } else {
+                    Some(v.to_string())
+                };
+            }
             "iface" | "interface" => self.eng.interface = Some(v.to_string()),
             "lhost" => self.eng.lhost = Some(v.to_string()),
             "lport" => self.eng.lport = Some(v.to_string()),
             "domain" => self.eng.domain.fqdn = Some(v.to_ascii_lowercase()),
-            "dc" | "dc_ip" => { self.eng.domain.dc_ips.insert(v.to_string()); }
-            other => { self.eng.wordlists.insert(other.to_string(), v.to_string()); }
+            "dc" | "dc_ip" => {
+                self.eng.domain.dc_ips.insert(v.to_string());
+            }
+            other => {
+                self.eng.wordlists.insert(other.to_string(), v.to_string());
+            }
         }
         self.push(Line::c(format!("set {k} = {v}"), Color::Cyan));
         self.refresh_suggestions();
@@ -521,10 +718,21 @@ impl App {
 
     fn print_suggestions(&mut self) {
         let ctx_label = self.focus.clone().unwrap_or_else(|| "network".into());
-        self.push(Line::c(format!("suggested next steps for {ctx_label}:"), Color::Cyan));
-        let items: Vec<(String, Color)> = self.suggestions.iter().enumerate().map(|(i, t)| {
-            (format!("  {}. [{}] {} — {}", i + 1, t.phase.slug(), t.name, t.desc), Color::White)
-        }).collect();
+        self.push(Line::c(
+            format!("suggested next steps for {ctx_label}:"),
+            Color::Cyan,
+        ));
+        let items: Vec<(String, Color)> = self
+            .suggestions
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                (
+                    format!("  {}. [{}] {} — {}", i + 1, t.phase.slug(), t.name, t.desc),
+                    Color::White,
+                )
+            })
+            .collect();
         for (t, c) in items {
             self.push(Line::c(t, c));
         }
@@ -534,30 +742,46 @@ impl App {
 
     /// Resolve lhost/lport: explicit args override stored engagement values.
     fn payload_params(&self, args: &[&str]) -> payload::Params {
-        let mut p = payload::Params::default();
-        p.lhost = args.get(1).map(|s| s.to_string())
-            .or_else(|| self.eng.lhost.clone())
-            .unwrap_or_else(|| "{lhost}".into());
-        p.lport = args.get(2).map(|s| s.to_string())
-            .or_else(|| self.eng.lport.clone())
-            .unwrap_or_else(|| "4444".into());
-        p
+        payload::Params {
+            lhost: args
+                .get(1)
+                .map(|s| s.to_string())
+                .or_else(|| self.eng.lhost.clone())
+                .unwrap_or_else(|| "{lhost}".into()),
+            lport: args
+                .get(2)
+                .map(|s| s.to_string())
+                .or_else(|| self.eng.lport.clone())
+                .unwrap_or_else(|| "4444".into()),
+            ..payload::Params::default()
+        }
     }
 
     fn gen_payload(&mut self, spec: &str) {
         // form: <id> [lhost] [lport] [+transform]
         let mut transform_name = None;
-        let tokens: Vec<String> = spec.split_whitespace().map(|t| {
-            if let Some(t2) = t.strip_prefix('+') { transform_name = Some(t2.to_string()); String::new() }
-            else { t.to_string() }
-        }).filter(|t| !t.is_empty()).collect();
+        let tokens: Vec<String> = spec
+            .split_whitespace()
+            .map(|t| {
+                if let Some(t2) = t.strip_prefix('+') {
+                    transform_name = Some(t2.to_string());
+                    String::new()
+                } else {
+                    t.to_string()
+                }
+            })
+            .filter(|t| !t.is_empty())
+            .collect();
         let args: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
         if args.is_empty() {
             self.list_payloads("");
             return;
         }
         let Some(pl) = payload::by_id(args[0]) else {
-            self.push(Line::c(format!("? no payload '{}' — /payloads to list", args[0]), Color::Yellow));
+            self.push(Line::c(
+                format!("? no payload '{}' — /payloads to list", args[0]),
+                Color::Yellow,
+            ));
             return;
         };
         let params = self.payload_params(&args);
@@ -571,7 +795,10 @@ impl App {
             }
         }
 
-        self.push(Line::c(format!("── {} [{}/{}] ──", pl.name, pl.os.label(), pl.lang.label()), Color::Magenta));
+        self.push(Line::c(
+            format!("── {} [{}/{}] ──", pl.name, pl.os.label(), pl.lang.label()),
+            Color::Magenta,
+        ));
         if !pl.notes.is_empty() {
             self.push(Line::c(format!("  {}", pl.notes), Color::DarkGray));
         }
@@ -584,37 +811,62 @@ impl App {
         }
         if !pl.transforms.is_empty() && transform_name.is_none() {
             let ts: Vec<&str> = pl.transforms.iter().map(|t| t.label()).collect();
-            self.push(Line::c(format!("  transforms: {} — add e.g. /payload {} +{}", ts.join(", "), pl.id, ts[0]), Color::DarkGray));
+            self.push(Line::c(
+                format!(
+                    "  transforms: {} — add e.g. /payload {} +{}",
+                    ts.join(", "),
+                    pl.id,
+                    ts[0]
+                ),
+                Color::DarkGray,
+            ));
         }
         // Save to workspace loot for reuse.
         let fname = format!("{}.{}", pl.id, pl.lang.ext());
         let path = self.ws.loot_dir().join(&fname);
         let _ = std::fs::write(&path, &body);
         self.push(Line::c(format!("  saved → loot/{fname}"), Color::Cyan));
-        self.eng.note(Phase::PostExploit, format!("payload {}: {}", pl.id, body.lines().next().unwrap_or("")));
+        self.eng.note(
+            Phase::PostExploit,
+            format!("payload {}: {}", pl.id, body.lines().next().unwrap_or("")),
+        );
     }
 
     fn gen_msf(&mut self, spec: &str) {
         let args: Vec<&str> = spec.split_whitespace().collect();
         if args.is_empty() {
             self.push(Line::c("msfvenom specs:", Color::Cyan));
-            let names: Vec<(String,String)> = payload::msf::SPECS.iter()
-                .map(|s| (s.id.to_string(), s.name.to_string())).collect();
+            let names: Vec<(String, String)> = payload::msf::SPECS
+                .iter()
+                .map(|s| (s.id.to_string(), s.name.to_string()))
+                .collect();
             for (id, name) in names {
                 self.push(Line::c(format!("  {id:22} {name}"), Color::White));
             }
             return;
         }
         let Some(spec_def) = payload::msf::by_id(args[0]) else {
-            self.push(Line::c(format!("? no msf spec '{}' — /msf to list", args[0]), Color::Yellow));
+            self.push(Line::c(
+                format!("? no msf spec '{}' — /msf to list", args[0]),
+                Color::Yellow,
+            ));
             return;
         };
-        let lhost = args.get(1).map(|s| s.to_string())
-            .or_else(|| self.eng.lhost.clone()).unwrap_or_else(|| "{lhost}".into());
-        let lport = args.get(2).map(|s| s.to_string())
-            .or_else(|| self.eng.lport.clone()).unwrap_or_else(|| "4444".into());
+        let lhost = args
+            .get(1)
+            .map(|s| s.to_string())
+            .or_else(|| self.eng.lhost.clone())
+            .unwrap_or_else(|| "{lhost}".into());
+        let lport = args
+            .get(2)
+            .map(|s| s.to_string())
+            .or_else(|| self.eng.lport.clone())
+            .unwrap_or_else(|| "4444".into());
         let cmd = spec_def.command(&lhost, &lport, "", None, 1);
-        self.push(Line::c(format!("── msfvenom · {} ──", spec_def.name), Color::Magenta));
+        self.push(Line::c(
+            format!("── msfvenom · {} ──", spec_def.name),
+            Color::Magenta,
+        ));
         self.push(Line::c(format!("  {}", spec_def.notes), Color::DarkGray));
         self.push(Line::c(cmd, Color::White));
         let handler = if spec_def.stageless() {
@@ -627,18 +879,50 @@ impl App {
 
     fn list_payloads(&mut self, filter: &str) {
         let f = filter.trim().to_ascii_lowercase();
-        let items: Vec<(String, Color)> = payload::all().iter()
-            .filter(|p| f.is_empty()
-                || p.os.label().contains(&f) || p.lang.label().contains(&f)
-                || p.kind.label().contains(&f) || p.id.contains(&f))
-            .map(|p| (format!("  {:22} [{}/{}/{}] {}", p.id, p.os.label(), p.kind.label(), p.lang.label(), p.name), Color::White))
+        let items: Vec<(String, Color)> = payload::all()
+            .iter()
+            .filter(|p| {
+                f.is_empty()
+                    || p.os.label().contains(&f)
+                    || p.lang.label().contains(&f)
+                    || p.kind.label().contains(&f)
+                    || p.id.contains(&f)
+            })
+            .map(|p| {
+                (
+                    format!(
+                        "  {:22} [{}/{}/{}] {}",
+                        p.id,
+                        p.os.label(),
+                        p.kind.label(),
+                        p.lang.label(),
+                        p.name
+                    ),
+                    Color::White,
+                )
+            })
             .collect();
-        self.push(Line::c(format!("payloads{}:", if f.is_empty() { String::new() } else { format!(" · {f}") }), Color::Cyan));
+        self.push(Line::c(
+            format!(
+                "payloads{}:",
+                if f.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {f}")
+                }
+            ),
+            Color::Cyan,
+        ));
         if items.is_empty() {
             self.push(Line::plain("  (none match)"));
         }
-        for (t, c) in items { self.push(Line::c(t, c)); }
-        self.push(Line::c("  usage: /payload <id> [lhost] [lport] [+transform]   ·   /msf <id>", Color::DarkGray));
+        for (t, c) in items {
+            self.push(Line::c(t, c));
+        }
+        self.push(Line::c(
+            "  usage: /payload <id> [lhost] [lport] [+transform]   ·   /msf <id>",
+            Color::DarkGray,
+        ));
     }
 
     fn push(&mut self, l: Line) {
@@ -668,13 +952,17 @@ pub fn seed_target(eng: &mut Engagement, spec: &str) -> Result<()> {
     if let Ok(net) = spec.parse::<ipnet::Ipv4Net>() {
         if net.prefix_len() >= 24 {
             for ip in net.hosts().take(256) {
-                eng.hosts.entry(ip.to_string()).or_insert_with(|| Host::new(ip.to_string()));
+                eng.hosts
+                    .entry(ip.to_string())
+                    .or_insert_with(|| Host::new(ip.to_string()));
             }
             return Ok(());
         }
     }
     if spec.parse::<std::net::Ipv4Addr>().is_ok() {
-        eng.hosts.entry(spec.to_string()).or_insert_with(|| Host::new(spec));
+        eng.hosts
+            .entry(spec.to_string())
+            .or_insert_with(|| Host::new(spec));
         return Ok(());
     }
     anyhow::bail!("not an IP, CIDR, or existing file: {spec}");

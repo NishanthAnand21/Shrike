@@ -1,5 +1,5 @@
 //! The payload registry. Templates use {lhost} {lport} {shell} {path} slots.
-//! Add an entry to teach warden a new one-liner.
+//! Add an entry to teach shrike a new one-liner.
 
 use super::transform::Kind as T;
 use super::{Kind::*, Lang::*, Os::*, Payload};

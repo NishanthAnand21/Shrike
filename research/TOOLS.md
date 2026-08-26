@@ -1,4 +1,4 @@
-# TOOLS.md — Warden Tool Wrapper Reference
+# TOOLS.md — Shrike Tool Wrapper Reference
 
 Research reference for a Rust CLI framework wrapping Kali offensive tooling. Authorized pentest / OSCP-lab context.
 

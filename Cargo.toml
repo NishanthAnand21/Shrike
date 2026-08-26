@@ -1,11 +1,11 @@
 [package]
-name = "warden"
+name = "shrike"
 version = "0.1.0"
 edition = "2021"
 description = "Offensive-security recon-to-exploitation orchestration framework"
 
 [[bin]]
-name = "warden"
+name = "shrike"
 path = "src/main.rs"
 
 [dependencies]

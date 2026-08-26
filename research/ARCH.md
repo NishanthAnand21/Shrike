@@ -1,4 +1,4 @@
-# warden — Technical Foundation & Architecture Research
+# shrike — Technical Foundation & Architecture Research
 
 Research target: a Rust TUI offensive-security orchestrator with a Claude-Code-style
 terminal interface — a scrolling transcript of executed commands + output, a bottom
@@ -17,7 +17,7 @@ notes inline.
 
 ```toml
 [package]
-name = "warden"
+name = "shrike"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
@@ -169,7 +169,7 @@ impl App {
     fn new() -> Self {
         Self {
             transcript: vec![Line::from(
-                "warden ready. type a command, or /help. Ctrl-C quits.".dim(),
+                "shrike ready. type a command, or /help. Ctrl-C quits.".dim(),
             )],
             scroll: None,
             input: String::new(),
@@ -217,7 +217,7 @@ impl App {
 #[tokio::main]
 async fn main() -> Result<()> {
     // tracing → file, because stdout belongs to the TUI.
-    let file = tracing_appender::rolling::never(".", "warden.log");
+    let file = tracing_appender::rolling::never(".", "shrike.log");
     let (nb, _guard) = tracing_appender::non_blocking(file);
     tracing_subscriber::fmt().with_writer(nb).with_ansi(false).init();
 
@@ -455,7 +455,7 @@ fn render_transcript(f: &mut Frame, app: &App, area: Rect) {
 fn render_status(f: &mut Frame, app: &App, area: Rect) {
     let follow = if app.scroll.is_none() { "TAIL" } else { "SCROLL" };
     let text = Line::from(vec![
-        Span::styled(" warden ", Style::default().bg(Color::Blue).fg(Color::White).bold()),
+        Span::styled(" shrike ", Style::default().bg(Color::Blue).fg(Color::White).bold()),
         Span::raw(format!(" jobs:{} ", app.running_jobs)),
         Span::styled(format!(" {follow} "), Style::default().fg(Color::DarkGray)),
         Span::raw(format!(" lines:{} ", app.transcript.len())),
@@ -717,7 +717,7 @@ loop — no other jobs render meanwhile, which is exactly what the user expects.
 
 ### Strategy B — **`portable-pty`** — embed the tool inside your TUI
 
-Use only when you want the interactive session to appear *inside* a warden pane (split
+Use only when you want the interactive session to appear *inside* a shrike pane (split
 view, logged keystrokes, multiplexed alongside other jobs) rather than taking over the
 screen. `portable-pty` allocates a real PTY pair; you write user keystrokes to the
 master and render the child's output in a ratatui pane. This is much more work: you
@@ -756,7 +756,7 @@ dir (`dirs::data_dir()`), one directory per engagement.
 ### Layout
 
 ```
-~/.local/share/warden/                         (dirs::data_dir()/warden)
+~/.local/share/shrike/                         (dirs::data_dir()/shrike)
 └── engagements/
     └── acme-external-2026-08/                  ← one engagement
         ├── engagement.toml                     ← static config: scope, name, operator
@@ -833,7 +833,7 @@ pub struct TargetRecord {
 
 pub fn engagement_root(name: &str) -> PathBuf {
     dirs::data_dir().unwrap_or_else(|| PathBuf::from("."))
-        .join("warden").join("engagements").join(name)
+        .join("shrike").join("engagements").join(name)
 }
 
 pub fn load_or_init(name: &str) -> Result<EngagementState> {
@@ -866,7 +866,7 @@ pub fn save(name: &str, st: &EngagementState) -> Result<()> {
 }
 ```
 
-On startup warden lists `engagements/`, lets the user pick or create one, loads
+On startup shrike lists `engagements/`, lets the user pick or create one, loads
 `state.json`, re-hydrates the job/target tables and the transcript tail, and flags any
 `interrupted` jobs for re-queue. All disk writes happen off the render path (in the job
 tasks or a dedicated `spawn_blocking` writer) so persistence never stalls the UI.

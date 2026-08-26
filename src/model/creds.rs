@@ -80,7 +80,12 @@ pub struct Credential {
 }
 
 impl Credential {
-    pub fn new(user: impl Into<String>, secret: impl Into<String>, kind: SecretKind, source: impl Into<String>) -> Self {
+    pub fn new(
+        user: impl Into<String>,
+        secret: impl Into<String>,
+        kind: SecretKind,
+        source: impl Into<String>,
+    ) -> Self {
         Credential {
             user: user.into(),
             domain: None,

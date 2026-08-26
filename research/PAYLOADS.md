@@ -1,6 +1,6 @@
-# warden — Payload Catalog
+# shrike — Payload Catalog
 
-Reference catalog for warden's built-in payload generator (revshells.com + msfvenom, in Rust).
+Reference catalog for shrike's built-in payload generator (revshells.com + msfvenom, in Rust).
 Every entry uses consistent fields so a struct can be generated 1:1 from a row/block.
 
 **Scope:** authorized pentesting / OSCP lab work only.

@@ -53,16 +53,34 @@ impl Workspace {
     /// Directory for a target+phase, created on demand.
     pub fn phase_dir(&self, target: Option<&str>, phase_slug: &str) -> Result<PathBuf> {
         let t = target.unwrap_or("_global");
-        let safe: String = t.chars().map(|c| if c == '/' || c == ':' { '_' } else { c }).collect();
+        let safe: String = t
+            .chars()
+            .map(|c| if c == '/' || c == ':' { '_' } else { c })
+            .collect();
         let dir = self.root.join("targets").join(safe).join(phase_slug);
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
     }
 
     /// Path where a command's full output will be written.
-    pub fn output_file(&self, id: u64, target: Option<&str>, phase_slug: &str, tool: &str) -> Result<PathBuf> {
+    pub fn output_file(
+        &self,
+        id: u64,
+        target: Option<&str>,
+        phase_slug: &str,
+        tool: &str,
+    ) -> Result<PathBuf> {
         let dir = self.phase_dir(target, phase_slug)?;
-        let toolsafe: String = tool.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+        let toolsafe: String = tool
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
         Ok(dir.join(format!("{id:04}-{toolsafe}.txt")))
     }
 
@@ -72,7 +90,10 @@ impl Workspace {
 
     /// Path relative to root, for storing in the state file.
     pub fn rel(&self, p: &Path) -> String {
-        p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy().into_owned()
+        p.strip_prefix(&self.root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .into_owned()
     }
 
     /// Regenerate notes.md from the engagement.

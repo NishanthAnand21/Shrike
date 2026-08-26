@@ -29,7 +29,12 @@ pub struct DomainInfo {
 impl DomainInfo {
     pub fn base_dn(&self) -> Option<String> {
         let f = self.fqdn.as_ref()?;
-        Some(f.split('.').map(|p| format!("DC={p}")).collect::<Vec<_>>().join(","))
+        Some(
+            f.split('.')
+                .map(|p| format!("DC={p}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
     }
     pub fn is_known(&self) -> bool {
         self.fqdn.is_some() || self.netbios.is_some()
@@ -106,7 +111,9 @@ impl Engagement {
     }
 
     pub fn host_mut(&mut self, ip: &str) -> &mut Host {
-        self.hosts.entry(ip.to_string()).or_insert_with(|| Host::new(ip))
+        self.hosts
+            .entry(ip.to_string())
+            .or_insert_with(|| Host::new(ip))
     }
 
     pub fn upsert_host(&mut self, h: Host) {
@@ -225,7 +232,10 @@ impl Engagement {
     }
 
     pub fn note(&mut self, phase: Phase, text: impl Into<String>) {
-        self.notes.entry(phase.slug().to_string()).or_default().push(text.into());
+        self.notes
+            .entry(phase.slug().to_string())
+            .or_default()
+            .push(text.into());
     }
 
     /// A short human summary used in the status bar.
@@ -246,7 +256,9 @@ impl Engagement {
 }
 
 pub fn now_iso() -> String {
-    chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string()
+    chrono::Local::now()
+        .format("%Y-%m-%dT%H:%M:%S%:z")
+        .to_string()
 }
 
 #[allow(dead_code)]

@@ -1,7 +1,15 @@
-# warden
+# shrike
+
+> A recon-to-exploitation orchestration framework with a minimalist terminal UI —
+> the shrike is a butcherbird that hunts methodically and pins its prey.
+
+![CI](https://github.com/OWNER/shrike/actions/workflows/ci.yml/badge.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+📖 [Install](docs/INSTALL.md) · [Usage](docs/USAGE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 An offensive-security **recon-to-exploitation orchestration framework** with a
-Claude-Code-style terminal interface. You paste in targets, and warden drives the
+Claude-Code-style terminal interface. You paste in targets, and shrike drives the
 existing Kali toolchain (nmap, netexec, impacket, hashcat, bloodhound, ligolo, …)
 through every phase — enumeration → exploitation → cred access → lateral → privesc —
 suggesting the next step, running the command, capturing the output, feeding the
@@ -43,10 +51,10 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 cargo build --release
 
 # 2. run: start an engagement, seed targets, import an existing scan
-./target/release/warden --name oscp-exam --targets hosts.txt --import services.xml
+./target/release/shrike --name oscp-exam --targets hosts.txt --import services.xml
 
 # …or just print the topology + enumeration plan, no UI
-./target/release/warden --targets hosts.txt --import services.xml --plan
+./target/release/shrike --targets hosts.txt --import services.xml --plan
 ```
 
 In the TUI: type `/` for the command menu, `Tab` to run the highlighted suggestion,
@@ -107,7 +115,7 @@ listener once, then generate in any language:
   payload is saved to `loot/` and the matching listener is printed alongside it.
 
 Scope note: these are the standard revshells.com / msfvenom / OSCP-curriculum payloads
-and signature-level encoders. warden does not implement in-memory injection, syscall
+and signature-level encoders. shrike does not implement in-memory injection, syscall
 stubs, or EDR-unhooking primitives — it generates and encodes, it does not build
 behavioural-evasion capability.
 
@@ -132,6 +140,10 @@ placeholders. The suggestion engine and command builder pick it up automatically
 
 ## Scope
 
-warden is a wrapper/orchestrator: it runs the tools you already have on PATH and
+shrike is a wrapper/orchestrator: it runs the tools you already have on PATH and
 records what they produce. It is for **authorized** engagements, CTFs and lab work.
 It does not bundle exploits or act autonomously — every command is operator-initiated.
+
+## License
+
+MIT — see [LICENSE](LICENSE). For **authorized testing only**; see [SECURITY.md](SECURITY.md).
