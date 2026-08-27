@@ -68,11 +68,38 @@ fn tools_with_outfile_render_when_provided() {
     // every template placeholder a tool references must be one the app can fill.
     // The app fills these (see Ctx::from_engagement + run_tool):
     let fillable: HashSet<&str> = [
-        "ip", "target", "port", "url", "scheme", "domain", "netbios", "dc_ip",
-        "basedn", "user", "pass", "nthash", "secret", "upn", "iface", "subnet",
-        "hostname", "wordlist", "userlist", "passlist", "vhostlist", "apilist",
-        "outfile", "outdir", "hashfile", "dumpfile", "relaylist", "query", "shell", "path",
-        "lhost", "lport",
+        "ip",
+        "target",
+        "port",
+        "url",
+        "scheme",
+        "domain",
+        "netbios",
+        "dc_ip",
+        "basedn",
+        "user",
+        "pass",
+        "nthash",
+        "secret",
+        "upn",
+        "iface",
+        "subnet",
+        "hostname",
+        "wordlist",
+        "userlist",
+        "passlist",
+        "vhostlist",
+        "apilist",
+        "outfile",
+        "outdir",
+        "hashfile",
+        "dumpfile",
+        "relaylist",
+        "query",
+        "shell",
+        "path",
+        "lhost",
+        "lport",
     ]
     .into_iter()
     .collect();
@@ -104,5 +131,8 @@ fn tools_with_outfile_render_when_provided() {
             i += 1;
         }
     }
-    assert!(unknown.is_empty(), "catalog references unfillable placeholders: {unknown:?}");
+    assert!(
+        unknown.is_empty(),
+        "catalog references unfillable placeholders: {unknown:?}"
+    );
 }
