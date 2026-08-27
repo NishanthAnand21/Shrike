@@ -247,18 +247,25 @@ fn draw_panel(f: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, t)| {
             let selected = i == app.sel;
+            let avail = app.suggest_avail.get(i).copied().unwrap_or(true);
             let style = if selected {
                 Style::default()
                     .fg(Color::Black)
                     .bg(ACCENT)
                     .add_modifier(Modifier::BOLD)
+            } else if !avail {
+                Style::default().fg(MUTED)
             } else {
                 Style::default().fg(phase_color(t.phase))
             };
-            TLine::from(vec![
+            let mut spans = vec![
                 Span::styled(if selected { "▸ " } else { "  " }, style),
                 Span::styled(t.name.to_string(), style),
-            ])
+            ];
+            if !avail {
+                spans.push(Span::styled(" ·off", Style::default().fg(Color::Red)));
+            }
+            TLine::from(spans)
         })
         .collect();
     f.render_widget(Paragraph::new(items).wrap(Wrap { trim: true }), inner);

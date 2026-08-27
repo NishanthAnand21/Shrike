@@ -81,6 +81,8 @@ pub struct App {
     pub phase_filter: Option<Phase>,
     pub live: HashMap<u64, Live>,
     pub suggestions: Vec<&'static catalog::Tool>,
+    /// Parallel to `suggestions`: is each tool's binary installed?
+    pub suggest_avail: Vec<bool>,
     pub sel: usize, // selected suggestion
     pub show_help: bool,
     pub show_panel: bool,
@@ -106,6 +108,7 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         phase_filter: None,
         live: HashMap::new(),
         suggestions: vec![],
+        suggest_avail: vec![],
         sel: 0,
         show_help: false,
         show_panel: false,
@@ -469,6 +472,18 @@ impl App {
     }
 
     async fn run_tool(&mut self, tool: &'static catalog::Tool) {
+        // Pre-flight: don't build a command for a tool that isn't installed.
+        if !catalog::is_available(tool) {
+            self.push(Line::c(
+                format!(
+                    "✗ {} not found on PATH (looked for: {}) — install it (see docs/INSTALL.md)",
+                    tool.name,
+                    tool.bins.join(", ")
+                ),
+                Color::Red,
+            ));
+            return;
+        }
         let host = self
             .focus
             .as_ref()
@@ -757,6 +772,7 @@ impl App {
             s.retain(|t| t.phase == pf);
         }
         s.truncate(12);
+        self.suggest_avail = s.iter().map(|t| catalog::is_available(t)).collect();
         self.suggestions = s;
         if self.sel >= self.suggestions.len() {
             self.sel = self.suggestions.len().saturating_sub(1);
@@ -774,9 +790,18 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, t)| {
+                let avail = self.suggest_avail.get(i).copied().unwrap_or(true);
+                let tag = if avail { "" } else { "  (not installed)" };
                 (
-                    format!("  {}. [{}] {} — {}", i + 1, t.phase.slug(), t.name, t.desc),
-                    Color::White,
+                    format!(
+                        "  {}. [{}] {} — {}{}",
+                        i + 1,
+                        t.phase.slug(),
+                        t.name,
+                        t.desc,
+                        tag
+                    ),
+                    if avail { Color::White } else { Color::DarkGray },
                 )
             })
             .collect();

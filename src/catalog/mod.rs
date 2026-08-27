@@ -350,6 +350,16 @@ pub fn all() -> &'static [Tool] {
     tools::REGISTRY
 }
 
+/// The first of a tool's candidate binaries that is present on PATH.
+pub fn resolve_bin(tool: &Tool) -> Option<&'static str> {
+    tool.bins.iter().copied().find(|b| which::which(b).is_ok())
+}
+
+/// Is at least one of a tool's binaries installed?
+pub fn is_available(tool: &Tool) -> bool {
+    tool.bins.is_empty() || resolve_bin(tool).is_some()
+}
+
 pub fn by_id(id: &str) -> Option<&'static Tool> {
     all().iter().find(|t| t.id == id)
 }
