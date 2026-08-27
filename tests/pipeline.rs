@@ -57,3 +57,52 @@ const SAMPLE_XML: &str = r#"<?xml version="1.0"?>
 <trace><hop ipaddr="10.0.0.1"/><hop ipaddr="192.168.1.50"/></trace>
 </host>
 </nmaprun>"#;
+
+#[test]
+fn tools_with_outfile_render_when_provided() {
+    // Guards the bug where {outfile} was never supplied, so every nmap/ffuf/etc.
+    // tool failed to launch with "needs: outfile".
+    use std::collections::HashSet;
+    // Re-declare the minimal surface we need from the catalog via the binary is not
+    // possible here (integration test), so assert the template contract instead:
+    // every template placeholder a tool references must be one the app can fill.
+    // The app fills these (see Ctx::from_engagement + run_tool):
+    let fillable: HashSet<&str> = [
+        "ip", "target", "port", "url", "scheme", "domain", "netbios", "dc_ip",
+        "basedn", "user", "pass", "nthash", "secret", "upn", "iface", "subnet",
+        "hostname", "wordlist", "userlist", "passlist", "vhostlist", "apilist",
+        "outfile", "outdir", "hashfile", "dumpfile", "relaylist", "query", "shell", "path",
+        "lhost", "lport",
+    ]
+    .into_iter()
+    .collect();
+    // Parse the catalog source for {placeholder} tokens and ensure each is fillable.
+    let src = include_str!("../src/catalog/tools.rs");
+    let mut unknown = vec![];
+    // Only consider lines that are template string literals, not doc comments/prose.
+    for line in src.lines() {
+        let l = line.trim_start();
+        if l.starts_with("//") || !l.contains('"') {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'{' {
+                if let Some(end) = line[i + 1..].find('}') {
+                    let name = &line[i + 1..i + 1 + end];
+                    if !name.is_empty()
+                        && name.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                        && !fillable.contains(name)
+                    {
+                        unknown.push(name.to_string());
+                    }
+                    i += end + 2;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+    assert!(unknown.is_empty(), "catalog references unfillable placeholders: {unknown:?}");
+}

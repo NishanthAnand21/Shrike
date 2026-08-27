@@ -84,6 +84,29 @@ impl Workspace {
         Ok(dir.join(format!("{id:04}-{toolsafe}.txt")))
     }
 
+    /// A sibling artifact path for a job (e.g. the `-oX` XML target), given an extension.
+    pub fn artifact_file(
+        &self,
+        id: u64,
+        target: Option<&str>,
+        phase_slug: &str,
+        tool: &str,
+        ext: &str,
+    ) -> Result<PathBuf> {
+        let dir = self.phase_dir(target, phase_slug)?;
+        let toolsafe: String = tool
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        Ok(dir.join(format!("{id:04}-{toolsafe}.{ext}")))
+    }
+
     pub fn loot_dir(&self) -> PathBuf {
         self.root.join("loot")
     }

@@ -62,6 +62,7 @@ pub struct Live {
     pub status: JobStatus,
     pub lines: Vec<String>,
     pub output_file: std::path::PathBuf,
+    pub artifact: Option<std::path::PathBuf>,
     pub record_id: Option<u64>,
 }
 
@@ -304,7 +305,7 @@ impl App {
         };
         let excerpt: Vec<String> = live.lines.iter().take(40).cloned().collect();
         let rec = Record {
-            id: 0,
+            id,
             phase: live.phase,
             tool: live.tool.clone(),
             target: live.target.clone(),
@@ -317,7 +318,9 @@ impl App {
             findings: vec![],
             starred: false,
         };
-        let rid = self.eng.push_record(rec);
+        self.eng.records.push(rec);
+        self.eng.next_record_id = self.eng.next_record_id.max(id + 1);
+        let rid = id;
         self.last_record = Some(rid);
 
         // Auto-ingest results.
@@ -331,9 +334,13 @@ impl App {
 
     /// Feed a finished job's output back into engagement state.
     fn ingest(&mut self, live: &Live, blob: &str, rid: u64) {
-        // nmap XML lands in the output file; if the command produced XML, ingest it.
+        // nmap writes its XML to the -oX artifact; fall back to the stdout capture.
         if live.tool.starts_with("nmap") || live.command.contains("-oX") {
-            if let Ok(xml) = std::fs::read_to_string(&live.output_file) {
+            let xml_path = live
+                .artifact
+                .clone()
+                .unwrap_or_else(|| live.output_file.clone());
+            if let Ok(xml) = std::fs::read_to_string(&xml_path) {
                 if xml.contains("<nmaprun") {
                     if let Ok(n) = parse::intel::ingest_nmap(&mut self.eng, &xml) {
                         self.push(Line::c(
@@ -467,7 +474,33 @@ impl App {
             .as_ref()
             .and_then(|ip| self.eng.hosts.get(ip))
             .cloned();
-        let ctx = Ctx::from_engagement(&self.eng, host.as_ref(), None);
+
+        // Reserve the job id now so {outfile}/{outdir} can point at real paths the
+        // job will actually write to (nmap -oX, ffuf -o, sqlmap --output-dir, ...).
+        let id = self.eng.next_record_id.max(1);
+        self.eng.next_record_id = id + 1;
+        let target = self.focus.clone();
+        let ext = if tool.template.contains("-oX") {
+            "xml"
+        } else if tool.template.contains("-oJ") || tool.template.contains("-of json") {
+            "json"
+        } else {
+            "out"
+        };
+        let artifact = self
+            .ws
+            .artifact_file(id, target.as_deref(), tool.phase.slug(), tool.id, ext)
+            .ok();
+        let outdir = self.ws.phase_dir(target.as_deref(), tool.phase.slug()).ok();
+
+        let mut ctx = Ctx::from_engagement(&self.eng, host.as_ref(), None);
+        if let Some(a) = &artifact {
+            ctx.set("outfile", a.to_string_lossy().into_owned());
+        }
+        if let Some(d) = &outdir {
+            ctx.set("outdir", d.to_string_lossy().into_owned());
+        }
+
         match tool.render(&ctx) {
             Ok(cmd) => {
                 if tool.interactive {
@@ -482,12 +515,14 @@ impl App {
                     return;
                 }
                 self.launch(
+                    id,
                     tool.id,
                     tool.phase,
                     tool.speed.timeout_secs(),
-                    self.focus.clone(),
+                    target,
                     cmd,
                     tool.note,
+                    artifact,
                 )
                 .await;
             }
@@ -509,22 +544,33 @@ impl App {
             return;
         }
         let phase = self.phase_filter.unwrap_or(Phase::Exploit);
-        self.launch("raw", phase, 0, self.focus.clone(), cmd.to_string(), "")
-            .await;
+        let id = self.eng.next_record_id.max(1);
+        self.eng.next_record_id = id + 1;
+        self.launch(
+            id,
+            "raw",
+            phase,
+            0,
+            self.focus.clone(),
+            cmd.to_string(),
+            "",
+            None,
+        )
+        .await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn launch(
         &mut self,
+        id: u64,
         tool: &str,
         phase: Phase,
         timeout: u64,
         target: Option<String>,
         command: String,
         note: &str,
+        artifact: Option<std::path::PathBuf>,
     ) {
-        let id = self.eng.next_record_id.max(1);
-        // Reserve the id space by bumping; the record is created on completion.
-        self.eng.next_record_id = id + 1;
         let out = match self
             .ws
             .output_file(id, target.as_deref(), phase.slug(), tool)
@@ -549,6 +595,7 @@ impl App {
                 status: JobStatus::Queued,
                 lines: vec![],
                 output_file: out.clone(),
+                artifact,
                 record_id: None,
             },
         );
