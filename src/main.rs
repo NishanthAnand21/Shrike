@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports)]
 mod catalog;
+mod chain;
 mod engine;
 mod model;
 mod notes;

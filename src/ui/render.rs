@@ -384,6 +384,10 @@ fn draw_help(f: &mut Frame, area: Rect) {
     let mut text = vec![hl("Keys")];
     for (k, v) in [
         ("Tab", "run highlighted suggestion / accept completion"),
+        (
+            "F1-F5 / Shift-Tab",
+            "switch views: console/hosts/findings/creds/web",
+        ),
         ("↑ ↓", "move selection (menu or suggestions)"),
         ("/", "open the command menu"),
         (

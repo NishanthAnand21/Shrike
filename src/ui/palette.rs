@@ -20,6 +20,8 @@ pub enum Action {
     Set(String, String),
     /// Show suggestions for the current context.
     Suggest,
+    /// Show state-aware attack-chain guidance.
+    Guide,
     /// Cancel a running job by id (or all).
     Cancel(Option<u64>),
     /// Export notes.md now.
@@ -82,7 +84,8 @@ pub fn parse(line: &str) -> Action {
             let (k, v) = rest.split_once([' ', '=']).unwrap_or((rest.as_str(), ""));
             Set(k.trim().to_string(), v.trim().to_string())
         }
-        "suggest" | "next" | "s" => Suggest,
+        "suggest" | "s" => Suggest,
+        "next" | "chain" | "n" => Guide,
         "cancel" | "stop" | "kill" => Cancel(rest.parse().ok()),
         "export" | "notes" => Export,
         "star" => Star,

@@ -26,6 +26,7 @@ pub fn render(eng: &Engagement) -> String {
     );
 
     findings(&mut h, eng);
+    attack(&mut h, eng);
     topology(&mut h, eng);
     creds(&mut h, eng);
     web(&mut h, eng);
@@ -75,6 +76,34 @@ fn findings(h: &mut String, eng: &Engagement) {
                 .unwrap_or(f.host.as_deref().unwrap_or(""))),
             src = esc(&f.source),
             cve = esc(&f.cve.join(", "))
+        );
+    }
+    let _ = write!(h, "</tbody></table></section>");
+}
+
+fn attack(h: &mut String, eng: &Engagement) {
+    use crate::chain::mitre;
+    use std::collections::BTreeMap;
+    let mut seen: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for r in &eng.records {
+        if let Some(id) = mitre::tag_for_tool(&r.tool) {
+            let e = seen.entry(id).or_default();
+            if !e.contains(&r.tool) {
+                e.push(r.tool.clone());
+            }
+        }
+    }
+    if seen.is_empty() {
+        return;
+    }
+    let _ = write!(h, "<section><h2>MITRE ATT&amp;CK techniques exercised</h2><table><thead><tr><th>Technique</th><th>Name</th><th>Via</th></tr></thead><tbody>");
+    for (id, tools) in seen {
+        let _ = write!(
+            h,
+            r#"<tr><td class="mono">{}</td><td>{}</td><td class="mono dim">{}</td></tr>"#,
+            id,
+            esc(mitre::name_for(id)),
+            esc(&tools.join(", "))
         );
     }
     let _ = write!(h, "</tbody></table></section>");

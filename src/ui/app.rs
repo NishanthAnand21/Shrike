@@ -523,6 +523,7 @@ impl App {
                 self.refresh_suggestions();
                 self.print_suggestions();
             }
+            Action::Guide => self.print_guidance(),
             Action::RunTool(id) => self.run_tool_by_id(&id).await,
             Action::RunRaw(cmd) => self.run_raw(&cmd).await,
             Action::Focus(ip) => self.set_focus(&ip),
@@ -1125,6 +1126,41 @@ impl App {
         self.suggestions = s;
         if self.sel >= self.suggestions.len() {
             self.sel = self.suggestions.len().saturating_sub(1);
+        }
+    }
+
+    fn print_guidance(&mut self) {
+        let chains = crate::chain::recommend(&self.eng);
+        if chains.is_empty() {
+            self.push(Line::c(
+                "no state yet — /target a host and scan to begin",
+                Color::Yellow,
+            ));
+            return;
+        }
+        self.push(Line::c(
+            "attack-chain guidance (state → next moves):",
+            Color::Magenta,
+        ));
+        let mut lines: Vec<(String, Color)> = vec![];
+        for ch in chains {
+            lines.push((format!("  ▸ {}", ch.state), Color::Cyan));
+            for rec in ch.recs {
+                let avail = crate::catalog::by_id(rec.tool)
+                    .map(crate::catalog::is_available)
+                    .unwrap_or(true);
+                let mark = if avail { "" } else { " (not installed)" };
+                lines.push((
+                    format!(
+                        "      {:<20} {}  [{}]{}",
+                        rec.tool, rec.why, rec.attack, mark
+                    ),
+                    if avail { Color::White } else { Color::DarkGray },
+                ));
+            }
+        }
+        for (l, c) in lines {
+            self.push(Line::c(l, c));
         }
     }
 

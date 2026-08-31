@@ -14,6 +14,7 @@ pub fn render(eng: &Engagement) -> String {
 
     render_topology(&mut s, eng);
     render_findings(&mut s, eng);
+    render_attack(&mut s, eng);
     render_intel(&mut s, eng);
     render_web(&mut s, eng);
     render_commands(&mut s, eng);
@@ -147,6 +148,36 @@ fn render_intel(s: &mut String, eng: &Engagement) {
         }
         let _ = writeln!(s);
     }
+}
+
+fn render_attack(s: &mut String, eng: &Engagement) {
+    use crate::chain::mitre;
+    use std::collections::BTreeMap;
+    let mut seen: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for r in &eng.records {
+        if let Some(id) = mitre::tag_for_tool(&r.tool) {
+            let e = seen.entry(id).or_default();
+            if !e.contains(&r.tool) {
+                e.push(r.tool.clone());
+            }
+        }
+    }
+    if seen.is_empty() {
+        return;
+    }
+    let _ = writeln!(s, "## MITRE ATT&CK techniques\n");
+    let _ = writeln!(s, "| technique | name | via |");
+    let _ = writeln!(s, "|-----------|------|-----|");
+    for (id, tools) in seen {
+        let _ = writeln!(
+            s,
+            "| `{}` | {} | {} |",
+            id,
+            mitre::name_for(id),
+            tools.join(", ")
+        );
+    }
+    let _ = writeln!(s);
 }
 
 fn render_findings(s: &mut String, eng: &Engagement) {

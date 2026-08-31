@@ -6,6 +6,13 @@ All notable changes to shrike are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Tabbed dashboard views** — console / hosts / findings / creds / web, switchable
+  with F1-F5, Shift-Tab or `/view`; each a navigable table (Enter focuses a host).
+- **Attack-chain guidance** (`/next`) — a state-aware engine that reads the engagement
+  and recommends the next concrete moves (catalog tool-ids) with a rationale and a
+  MITRE ATT&CK tag, encoding research/ATTACK_MAP.md states S1-S18.
+- **MITRE ATT&CK mapping** — commands and findings are tagged with technique IDs; the
+  markdown and HTML reports gain a "techniques exercised" section.
 - **Campaign mode** (`/auto [phase]`) — auto-runs every applicable, installed,
   non-interactive tool for a phase across the whole scope (or the focused host),
   reserving jobs and streaming results back in parallel.
