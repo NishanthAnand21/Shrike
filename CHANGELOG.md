@@ -6,6 +6,10 @@ All notable changes to shrike are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Payload ↔ listener linking** (`/payload … --listen`, `/msf … --listen`) — generate
+  a reverse shell and start the matching listener on its LPORT in one command, so
+  LHOST/LPORT stay in sync. Bind/web/transfer payloads and staged meterpreter (which
+  needs the msf handler) are skipped with a note.
 - **Managed reverse-shell listeners** (`/listen <port>`) — catch shells from generated
   payloads as tracked sessions. Output streams into the console tagged by id;
   `/sessions` lists them, `/send <id> <cmd>` fires one-off commands, `/interact <id>`

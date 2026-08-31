@@ -857,8 +857,8 @@ impl App {
                     )),
                 }
             }
-            Action::Payload(spec) => self.gen_payload(&spec),
-            Action::Msf(spec) => self.gen_msf(&spec),
+            Action::Payload(spec) => self.gen_payload(&spec).await,
+            Action::Msf(spec) => self.gen_msf(&spec).await,
             Action::Payloads(filter) => self.list_payloads(&filter),
             Action::Unknown(c) => self.push(Line::c(
                 format!("? unknown command /{c} — try /help"),
@@ -1488,14 +1488,19 @@ impl App {
         }
     }
 
-    fn gen_payload(&mut self, spec: &str) {
-        // form: <id> [lhost] [lport] [+transform]
+    async fn gen_payload(&mut self, spec: &str) {
+        // form: <id> [lhost] [lport] [+transform] [--listen]
         let mut transform_name = None;
+        let want_listen = spec
+            .split_whitespace()
+            .any(|t| t == "--listen" || t == "-l");
         let tokens: Vec<String> = spec
             .split_whitespace()
             .map(|t| {
                 if let Some(t2) = t.strip_prefix('+') {
                     transform_name = Some(t2.to_string());
+                    String::new()
+                } else if t == "--listen" || t == "-l" {
                     String::new()
                 } else {
                     t.to_string()
@@ -1516,6 +1521,12 @@ impl App {
             return;
         };
         let params = self.payload_params(&args);
+        if let Some(lh) = args.get(1) {
+            self.eng.lhost = Some(lh.to_string());
+        }
+        if let Some(lp) = args.get(2) {
+            self.eng.lport = Some(lp.to_string());
+        }
         let mut body = pl.render(&params);
 
         // Optional transform.
@@ -1561,10 +1572,51 @@ impl App {
             Phase::PostExploit,
             format!("payload {}: {}", pl.id, body.lines().next().unwrap_or("")),
         );
+        if want_listen {
+            self.listen_for_payload(&params.lport, pl.kind).await;
+        }
     }
 
-    fn gen_msf(&mut self, spec: &str) {
-        let args: Vec<&str> = spec.split_whitespace().collect();
+    /// Start a matching listener for a just-generated payload (--listen).
+    async fn listen_for_payload(&mut self, lport: &str, kind: crate::payload::Kind) {
+        use crate::payload::Kind;
+        if matches!(
+            kind,
+            Kind::BindShell
+                | Kind::WebShell
+                | Kind::FileTransfer
+                | Kind::TtyUpgrade
+                | Kind::Persistence
+        ) {
+            self.push(Line::c(
+                "  --listen skipped: this payload is not a reverse connection",
+                Color::Yellow,
+            ));
+            return;
+        }
+        match lport.parse::<u16>() {
+            Ok(port) => {
+                self.push(Line::c(
+                    format!("  ⇲ starting listener on :{port} …"),
+                    Color::Green,
+                ));
+                session::listen(self.registry.clone(), self.sess_tx.clone(), port).await;
+            }
+            Err(_) => self.push(Line::c(
+                "  --listen needs a numeric LPORT — /set lport <n> or pass it",
+                Color::Yellow,
+            )),
+        }
+    }
+
+    async fn gen_msf(&mut self, spec: &str) {
+        let want_listen = spec
+            .split_whitespace()
+            .any(|t| t == "--listen" || t == "-l");
+        let args: Vec<&str> = spec
+            .split_whitespace()
+            .filter(|t| *t != "--listen" && *t != "-l")
+            .collect();
         if args.is_empty() {
             self.push(Line::c("msfvenom specs:", Color::Cyan));
             let names: Vec<(String, String)> = payload::msf::SPECS
@@ -1600,12 +1652,29 @@ impl App {
         ));
         self.push(Line::c(format!("  {}", spec_def.notes), Color::DarkGray));
         self.push(Line::c(cmd, Color::White));
-        let handler = if spec_def.stageless() {
+        let stageless = spec_def.stageless();
+        let handler = if stageless {
             format!("  listener: rlwrap -cAr nc -lvnp {lport}")
         } else {
             format!("  handler: {}", spec_def.handler(&lhost, &lport))
         };
         self.push(Line::c(handler, Color::Green));
+        if want_listen {
+            if !stageless {
+                self.push(Line::c(
+                    "  --listen skipped: staged payloads need the msfconsole handler above, not a raw listener",
+                    Color::Yellow,
+                ));
+            } else if let Ok(port) = lport.parse::<u16>() {
+                self.push(Line::c(
+                    format!("  ⇲ starting listener on :{port} …"),
+                    Color::Green,
+                ));
+                session::listen(self.registry.clone(), self.sess_tx.clone(), port).await;
+            } else {
+                self.push(Line::c("  --listen needs a numeric LPORT", Color::Yellow));
+            }
+        }
     }
 
     fn list_payloads(&mut self, filter: &str) {

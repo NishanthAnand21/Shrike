@@ -136,6 +136,7 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/history` · `/rerun <id>` | list past commands / re-run one |
 | `/next` | state-aware attack-chain guidance with MITRE tags |
 | `/shell <cmd>` | run an interactive TTY tool inline (session handoff) |
+| `/payload <id> … --listen` | generate a reverse shell **and** start its listener |
 | `/listen <port>` | catch reverse shells as managed sessions |
 | `/sessions` · `/interact <id>` | list caught shells / attach (Ctrl-] detaches) |
 | `/send <id> <cmd>` · `/kill <id>` | fire a command into / close a session |

@@ -185,13 +185,13 @@ pub static COMMANDS: &[Cmd] = &[
     },
     Cmd {
         name: "payload",
-        args: "<id> [lhost] [lport] [+xform]",
-        desc: "generate a shell payload",
+        args: "<id> [lhost] [lport] [+xform] [--listen]",
+        desc: "generate a payload (+start matching listener)",
         aliases: &["gen", "rev"],
     },
     Cmd {
         name: "msf",
-        args: "<id> [lhost] [lport]",
+        args: "<id> [lhost] [lport] [--listen]",
         desc: "build an msfvenom command + handler",
         aliases: &["msfvenom"],
     },
