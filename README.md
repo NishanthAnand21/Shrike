@@ -137,7 +137,7 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/next` | state-aware attack-chain guidance with MITRE tags |
 | `/shell <cmd>` | run an interactive TTY tool inline (session handoff) |
 | `/payload <id> … --listen` | generate a reverse shell **and** start its listener |
-| `/listen <port>` | catch reverse shells as managed sessions |
+| `/listen <port> [--attach]` | catch reverse shells (--attach = auto-enter the session) |
 | `/sessions` · `/interact <id>` | list caught shells / attach (Ctrl-] detaches) |
 | `/send <id> <cmd>` · `/kill <id>` | fire a command into / close a session |
 | `/view <name>` · F1-F5 | switch dashboard views (console/hosts/findings/creds/web) |

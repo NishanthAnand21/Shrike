@@ -139,6 +139,8 @@ pub struct App {
     pub pending_interact: Option<SessionId>,
     pub live_sessions: usize,
     pub live_listeners: usize,
+    /// When true, a newly caught shell is attached interactively at once.
+    pub auto_attach: bool,
 }
 
 pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
@@ -175,6 +177,7 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         pending_interact: None,
         live_sessions: 0,
         live_listeners: 0,
+        auto_attach: false,
     };
     app.banner();
     app.refresh_suggestions();
@@ -291,13 +294,24 @@ impl App {
     }
 
     async fn start_listener(&mut self, spec: &str) {
-        let port: u16 = match spec.trim().parse() {
-            Ok(p) => p,
-            Err(_) => {
-                self.push(Line::c("usage: /listen <port>", Color::Yellow));
+        let attach = spec
+            .split_whitespace()
+            .any(|t| t == "--attach" || t == "-a");
+        let port_tok = spec.split_whitespace().find(|t| !t.starts_with('-'));
+        let port: u16 = match port_tok.and_then(|t| t.parse().ok()) {
+            Some(p) => p,
+            None => {
+                self.push(Line::c("usage: /listen <port> [--attach]", Color::Yellow));
                 return;
             }
         };
+        if attach {
+            self.auto_attach = true;
+            self.push(Line::c(
+                "  auto-attach on — the next shell drops you straight into the session",
+                Color::DarkGray,
+            ));
+        }
         session::listen(self.registry.clone(), self.sess_tx.clone(), port).await;
     }
 
@@ -396,10 +410,18 @@ impl App {
                 self.push(Line::c(format!("✗ listener #{id}: {error}"), Color::Red));
             }
             SessionEvent::Connected { id, peer } => {
-                self.push(Line::c(
-                    format!("★ shell #{id} from {peer} — /interact {id} to attach",),
-                    Color::Green,
-                ));
+                if self.auto_attach && self.pending_interact.is_none() {
+                    self.push(Line::c(
+                        format!("★ shell #{id} from {peer} — auto-attaching (Ctrl-] detaches)"),
+                        Color::Green,
+                    ));
+                    self.pending_interact = Some(id);
+                } else {
+                    self.push(Line::c(
+                        format!("★ shell #{id} from {peer} — /interact {id} to attach"),
+                        Color::Green,
+                    ));
+                }
             }
             SessionEvent::Output { id, text } => {
                 for line in text.lines() {
@@ -1340,6 +1362,12 @@ impl App {
             "iface" | "interface" => self.eng.interface = Some(v.to_string()),
             "lhost" => self.eng.lhost = Some(v.to_string()),
             "lport" => self.eng.lport = Some(v.to_string()),
+            "autoattach" | "auto-attach" => {
+                self.auto_attach = matches!(
+                    v.to_ascii_lowercase().as_str(),
+                    "on" | "true" | "1" | "yes" | ""
+                );
+            }
             "domain" => self.eng.domain.fqdn = Some(v.to_ascii_lowercase()),
             "dc" | "dc_ip" => {
                 self.eng.domain.dc_ips.insert(v.to_string());

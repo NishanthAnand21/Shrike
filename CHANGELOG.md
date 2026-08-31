@@ -10,6 +10,10 @@ All notable changes to shrike are documented here. Format loosely follows
   a reverse shell and start the matching listener on its LPORT in one command, so
   LHOST/LPORT stay in sync. Bind/web/transfer payloads and staged meterpreter (which
   needs the msf handler) are skipped with a note.
+- **Auto-attach on catch** — `/listen <port> --attach` (or `/set autoattach on`) drops
+  you straight into the interactive bridge the moment a shell lands; Ctrl-] detaches and
+  leaves the shell alive. Also fixed the command palette/help to list every command
+  (session, view, guidance and report commands were runnable but weren't showing up).
 - **Managed reverse-shell listeners** (`/listen <port>`) — catch shells from generated
   payloads as tracked sessions. Output streams into the console tagged by id;
   `/sessions` lists them, `/send <id> <cmd>` fires one-off commands, `/interact <id>`

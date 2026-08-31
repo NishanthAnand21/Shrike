@@ -138,8 +138,14 @@ pub static COMMANDS: &[Cmd] = &[
     Cmd {
         name: "suggest",
         args: "",
-        desc: "recompute next-step suggestions",
-        aliases: &["next", "s"],
+        desc: "list applicable tools for the context",
+        aliases: &["s"],
+    },
+    Cmd {
+        name: "next",
+        args: "",
+        desc: "attack-chain guidance for current state",
+        aliases: &["chain", "n"],
     },
     Cmd {
         name: "run",
@@ -148,10 +154,22 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &["r"],
     },
     Cmd {
+        name: "auto",
+        args: "[phase]",
+        desc: "auto-run applicable tools across scope",
+        aliases: &["campaign", "a"],
+    },
+    Cmd {
         name: "raw",
         args: "<command>",
         desc: "run an arbitrary shell command",
         aliases: &["sh", "!"],
+    },
+    Cmd {
+        name: "shell",
+        args: "<command>",
+        desc: "run an interactive TTY tool inline",
+        aliases: &["connect"],
     },
     Cmd {
         name: "target",
@@ -184,9 +202,15 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &["loot"],
     },
     Cmd {
+        name: "finding",
+        args: "[sev] title @loc",
+        desc: "record a finding for the report",
+        aliases: &["vuln", "f"],
+    },
+    Cmd {
         name: "payload",
         args: "<id> [lhost] [lport] [+xform] [--listen]",
-        desc: "generate a payload (+start matching listener)",
+        desc: "generate a payload (+ matching listener)",
         aliases: &["gen", "rev"],
     },
     Cmd {
@@ -202,9 +226,39 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &[],
     },
     Cmd {
+        name: "listen",
+        args: "<port> [--attach]",
+        desc: "reverse-shell listener (auto-attach on catch)",
+        aliases: &[],
+    },
+    Cmd {
+        name: "sessions",
+        args: "",
+        desc: "list caught shells and listeners",
+        aliases: &["ls"],
+    },
+    Cmd {
+        name: "interact",
+        args: "<id>",
+        desc: "attach to a shell (Ctrl-] detaches)",
+        aliases: &["i"],
+    },
+    Cmd {
+        name: "send",
+        args: "<id> <cmd>",
+        desc: "fire a one-off command into a session",
+        aliases: &[],
+    },
+    Cmd {
+        name: "kill",
+        args: "<id>",
+        desc: "kill a session or listener",
+        aliases: &[],
+    },
+    Cmd {
         name: "set",
         args: "<key> <value>",
-        desc: "set proxy/iface/domain/dc/lhost/lport",
+        desc: "set proxy/iface/domain/dc/lhost/lport/autoattach",
         aliases: &[],
     },
     Cmd {
@@ -214,22 +268,46 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &["p"],
     },
     Cmd {
+        name: "view",
+        args: "hosts|findings|creds|web|console",
+        desc: "switch dashboard view (or F1-F5)",
+        aliases: &["tab"],
+    },
+    Cmd {
         name: "panel",
         args: "",
         desc: "toggle the dashboard side panel",
         aliases: &["dash"],
     },
     Cmd {
-        name: "cancel",
-        args: "[job-id]",
-        desc: "cancel a running job (or all)",
-        aliases: &["stop", "kill"],
+        name: "html",
+        args: "",
+        desc: "export a self-contained HTML report",
+        aliases: &["report"],
     },
     Cmd {
         name: "export",
         args: "",
         desc: "write notes.md now",
         aliases: &["notes"],
+    },
+    Cmd {
+        name: "history",
+        args: "",
+        desc: "show command history",
+        aliases: &["hist"],
+    },
+    Cmd {
+        name: "rerun",
+        args: "<id>",
+        desc: "re-run a previous command by id",
+        aliases: &["replay"],
+    },
+    Cmd {
+        name: "cancel",
+        args: "[job-id]",
+        desc: "cancel a running job (or all)",
+        aliases: &["stop"],
     },
     Cmd {
         name: "star",
