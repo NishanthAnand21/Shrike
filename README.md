@@ -68,6 +68,16 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 <sub><b>Payload generation</b> — reverse shells in any language, encoding transforms applied with <code>+name</code>, and msfvenom commands; each printed with its matching listener and saved to <code>loot/</code>.</sub>
 </td>
 </tr>
+<tr>
+<td width="50%">
+<img src="docs/images/07-view-findings.png" alt="Findings view"><br>
+<sub><b>Dashboard views</b> (F1-F5) — hosts, findings, credentials and web content as navigable tables.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/09-guidance.png" alt="Attack-chain guidance"><br>
+<sub><b>Attack-chain guidance</b> (<code>/next</code>) — reads the engagement state and recommends the next moves with rationale and MITRE ATT&CK tags.</sub>
+</td>
+</tr>
 </table>
 
 ## Documentation
