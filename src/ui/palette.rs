@@ -42,6 +42,8 @@ pub enum Action {
     Rerun(String),
     /// Export the HTML report.
     Html,
+    /// Switch the active view.
+    ViewCmd(String),
     /// Generate a payload: id [lhost] [lport] [+transform]
     Payload(String),
     /// Build an msfvenom command: id [lhost] [lport]
@@ -92,6 +94,7 @@ pub fn parse(line: &str) -> Action {
         "history" | "hist" => History,
         "rerun" | "replay" => Rerun(rest),
         "html" | "report" => Html,
+        "view" | "v" | "tab" => ViewCmd(rest),
         "payload" | "gen" | "rev" => Payload(rest),
         "msf" | "msfvenom" => Msf(rest),
         "payloads" | "listpayloads" => Payloads(rest),

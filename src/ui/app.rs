@@ -53,6 +53,43 @@ impl Line {
     }
 }
 
+/// Which full-screen view is active. Tab cycles them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Console,
+    Hosts,
+    Findings,
+    Creds,
+    Web,
+}
+
+impl View {
+    pub const ALL: [View; 5] = [
+        View::Console,
+        View::Hosts,
+        View::Findings,
+        View::Creds,
+        View::Web,
+    ];
+    pub fn title(self) -> &'static str {
+        match self {
+            View::Console => "console",
+            View::Hosts => "hosts",
+            View::Findings => "findings",
+            View::Creds => "creds",
+            View::Web => "web",
+        }
+    }
+    pub fn next(self) -> View {
+        let i = View::ALL.iter().position(|v| *v == self).unwrap_or(0);
+        View::ALL[(i + 1) % View::ALL.len()]
+    }
+    pub fn prev(self) -> View {
+        let i = View::ALL.iter().position(|v| *v == self).unwrap_or(0);
+        View::ALL[(i + View::ALL.len() - 1) % View::ALL.len()]
+    }
+}
+
 /// Live bookkeeping for an in-flight job.
 pub struct Live {
     pub tool: String,
@@ -87,6 +124,8 @@ pub struct App {
     pub show_help: bool,
     pub show_panel: bool,
     pub menu_sel: usize,
+    pub view: View,
+    pub table_sel: usize,
     pub should_quit: bool,
     pub last_record: Option<u64>,
 }
@@ -113,6 +152,8 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         show_help: false,
         show_panel: false,
         menu_sel: 0,
+        view: View::Console,
+        table_sel: 0,
         should_quit: false,
         last_record: None,
     };
@@ -185,11 +226,23 @@ impl App {
             }
         }
         match k.code {
+            F(n) if (1..=5).contains(&n) => {
+                self.view = View::ALL[(n - 1) as usize];
+                self.table_sel = 0;
+            }
+            BackTab => {
+                self.view = self.view.prev();
+                self.table_sel = 0;
+            }
             Enter => {
-                let line = std::mem::take(&mut self.input);
-                self.cursor = 0;
-                self.show_help = false;
-                self.dispatch(&line).await;
+                if self.input.is_empty() && self.view == View::Hosts {
+                    self.focus_selected_host();
+                } else {
+                    let line = std::mem::take(&mut self.input);
+                    self.cursor = 0;
+                    self.show_help = false;
+                    self.dispatch(&line).await;
+                }
             }
             Tab => {
                 if self.menu_active() {
@@ -203,6 +256,8 @@ impl App {
                     if self.menu_sel > 0 {
                         self.menu_sel -= 1;
                     }
+                } else if self.view != View::Console {
+                    self.table_sel = self.table_sel.saturating_sub(1);
                 } else if self.sel > 0 {
                     self.sel -= 1;
                 }
@@ -213,6 +268,8 @@ impl App {
                     if self.menu_sel + 1 < n {
                         self.menu_sel += 1;
                     }
+                } else if self.view != View::Console {
+                    self.table_sel = self.table_sel.saturating_add(1);
                 } else if self.sel + 1 < self.suggestions.len() {
                     self.sel += 1;
                 }
@@ -502,6 +559,26 @@ impl App {
                 Ok(p) => self.push(Line::c(format!("report → {}", p.display()), Color::Cyan)),
                 Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
             },
+            Action::ViewCmd(name) => {
+                let v = match name.trim().to_ascii_lowercase().as_str() {
+                    "console" | "log" => Some(View::Console),
+                    "hosts" | "host" => Some(View::Hosts),
+                    "findings" | "finding" | "vulns" => Some(View::Findings),
+                    "creds" | "credentials" => Some(View::Creds),
+                    "web" | "paths" => Some(View::Web),
+                    _ => None,
+                };
+                match v {
+                    Some(v) => {
+                        self.view = v;
+                        self.table_sel = 0;
+                    }
+                    None => self.push(Line::c(
+                        "views: console hosts findings creds web  (or F1-F5)",
+                        Color::Yellow,
+                    )),
+                }
+            }
             Action::Payload(spec) => self.gen_payload(&spec),
             Action::Msf(spec) => self.gen_msf(&spec),
             Action::Payloads(filter) => self.list_payloads(&filter),
@@ -880,6 +957,20 @@ impl App {
                     .await;
             }
             None => self.push(Line::c(format!("no record #{rid}"), Color::Yellow)),
+        }
+    }
+
+    fn focus_selected_host(&mut self) {
+        let mut ips: Vec<String> = self.eng.hosts.keys().cloned().collect();
+        ips.sort_by_key(|ip| {
+            ip.split('.')
+                .filter_map(|o| o.parse::<u8>().ok())
+                .collect::<Vec<_>>()
+        });
+        if let Some(ip) = ips.get(self.table_sel.min(ips.len().saturating_sub(1))) {
+            let ip = ip.clone();
+            self.set_focus(&ip);
+            self.view = View::Console;
         }
     }
 

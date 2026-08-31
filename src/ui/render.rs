@@ -2,7 +2,7 @@
 //! transcript, a rounded input box, a slash-command autocomplete popup, and a
 //! subtle hint line. The dashboard panel is opt-in (/panel or Ctrl-G).
 
-use super::app::App;
+use super::app::{App, View};
 use super::palette;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -42,7 +42,13 @@ pub fn draw(f: &mut Frame, app: &App) {
     };
 
     draw_header(f, app, rows[0]);
-    draw_transcript(f, app, transcript_area);
+    match app.view {
+        View::Console => draw_transcript(f, app, transcript_area),
+        View::Hosts => draw_hosts_view(f, app, transcript_area),
+        View::Findings => draw_findings_view(f, app, transcript_area),
+        View::Creds => draw_creds_view(f, app, transcript_area),
+        View::Web => draw_web_view(f, app, transcript_area),
+    }
     if let Some(p) = panel_area {
         draw_panel(f, app, p);
     }
@@ -80,7 +86,25 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Magenta),
         ));
     }
-    f.render_widget(Paragraph::new(TLine::from(spans)), area);
+    // Right-aligned view tabs.
+    let mut tabs = vec![Span::raw("  ")];
+    for v in View::ALL {
+        let active = v == app.view;
+        let st = if active {
+            Style::default()
+                .fg(Color::Black)
+                .bg(ACCENT)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(FAINT)
+        };
+        tabs.push(Span::styled(format!(" {} ", v.title()), st));
+        tabs.push(Span::raw(" "));
+    }
+    let left = Paragraph::new(TLine::from(spans));
+    let right = Paragraph::new(TLine::from(tabs)).alignment(ratatui::layout::Alignment::Right);
+    f.render_widget(left, area);
+    f.render_widget(right, area);
 }
 
 fn draw_transcript(f: &mut Frame, app: &App, area: Rect) {
@@ -113,6 +137,10 @@ fn draw_transcript(f: &mut Frame, app: &App, area: Rect) {
 fn draw_hint(f: &mut Frame, app: &App, area: Rect) {
     let hint = if app.menu_active() {
         "↑↓ select · Tab complete · Enter run · Esc dismiss".to_string()
+    } else if app.view == View::Hosts {
+        "↑↓ select · Enter focus host · F1-F5 views · / for menu".to_string()
+    } else if app.view != View::Console {
+        "↑↓ scroll · F1-F5 switch views · / for menu · /help".to_string()
     } else if !app.follow {
         "PgUp/PgDn scroll · Ctrl-C cancel · /help".to_string()
     } else {
@@ -402,5 +430,235 @@ fn phase_color(p: crate::model::Phase) -> Color {
         Cracking => Color::LightMagenta,
         Pivot => Color::LightGreen,
         PostExploit | PrivEsc | Loot => Color::LightRed,
+    }
+}
+
+// ───────────────────────────── full-screen dashboard views
+
+fn view_frame<'a>(app: &App, area: Rect, f: &mut Frame, title: &str, rows: Vec<TLine<'a>>) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(MUTED))
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default().fg(ACCENT),
+        ));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    // simple scroll: keep table_sel visible
+    let h = inner.height as usize;
+    let sel = app.table_sel.min(rows.len().saturating_sub(1));
+    let start = sel.saturating_sub(h.saturating_sub(1));
+    let slice: Vec<TLine> = rows.into_iter().skip(start).take(h).collect();
+    f.render_widget(Paragraph::new(slice), inner);
+}
+
+fn sel_style(active: bool) -> Style {
+    if active {
+        Style::default()
+            .fg(Color::Black)
+            .bg(ACCENT)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    }
+}
+
+fn draw_hosts_view(f: &mut Frame, app: &App, area: Rect) {
+    let mut ips: Vec<&String> = app.eng.hosts.keys().collect();
+    ips.sort_by_key(|ip| {
+        ip.split('.')
+            .filter_map(|o| o.parse::<u8>().ok())
+            .collect::<Vec<_>>()
+    });
+    let mut rows = vec![];
+    for (i, ip) in ips.iter().enumerate() {
+        let h = &app.eng.hosts[*ip];
+        let active = i == app.table_sel.min(ips.len().saturating_sub(1));
+        let ports: Vec<String> = h.open().map(|s| s.port.to_string()).collect();
+        let tags = {
+            let mut t = String::new();
+            if h.compromised {
+                t.push_str(" OWNED");
+            }
+            if h.is_dc() {
+                t.push_str(" DC");
+            }
+            t
+        };
+        let names = if h.hostnames.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", h.hostnames.join(","))
+        };
+        rows.push(TLine::from(vec![
+            Span::styled(format!(" {:<16}", ip), sel_style(active)),
+            Span::styled(
+                format!("{:<22}", truncate(&format!("{}{}", os_short(h), names), 22)),
+                Style::default().fg(if active { Color::Black } else { FAINT }),
+            ),
+            Span::styled(
+                truncate(&ports.join(","), 40),
+                Style::default().fg(if active { Color::Black } else { Color::White }),
+            ),
+            Span::styled(tags, Style::default().fg(Color::Magenta)),
+        ]));
+    }
+    if rows.is_empty() {
+        rows.push(TLine::from(Span::styled(
+            "  no hosts — /target <ip|cidr> or /run nmap-full",
+            Style::default().fg(FAINT),
+        )));
+    }
+    view_frame(
+        app,
+        area,
+        f,
+        &format!("hosts ({})  ·  ↑↓ select · Enter focus", ips.len()),
+        rows,
+    );
+}
+
+fn draw_findings_view(f: &mut Frame, app: &App, area: Rect) {
+    let mut rows = vec![];
+    for (i, fd) in app.eng.findings.iter().enumerate() {
+        let active = i == app.table_sel.min(app.eng.findings.len().saturating_sub(1));
+        let sevc = match fd.severity {
+            crate::model::Severity::Critical => Color::Red,
+            crate::model::Severity::High => Color::LightRed,
+            crate::model::Severity::Medium => Color::Yellow,
+            crate::model::Severity::Low => Color::Cyan,
+            crate::model::Severity::Info => Color::DarkGray,
+        };
+        rows.push(TLine::from(vec![
+            Span::styled(
+                format!(" {:<9}", fd.severity.label().to_uppercase()),
+                if active {
+                    sel_style(true)
+                } else {
+                    Style::default().fg(sevc).add_modifier(Modifier::BOLD)
+                },
+            ),
+            Span::styled(
+                format!("{:<44}", truncate(&fd.title, 44)),
+                Style::default().fg(if active { Color::Black } else { Color::White }),
+            ),
+            Span::styled(
+                truncate(fd.location.as_deref().unwrap_or(""), 34),
+                Style::default().fg(if active { Color::Black } else { FAINT }),
+            ),
+        ]));
+    }
+    if rows.is_empty() {
+        rows.push(TLine::from(Span::styled(
+            "  no findings yet — run nuclei, or /finding …",
+            Style::default().fg(FAINT),
+        )));
+    }
+    view_frame(
+        app,
+        area,
+        f,
+        &format!("findings ({})", app.eng.findings.len()),
+        rows,
+    );
+}
+
+fn draw_creds_view(f: &mut Frame, app: &App, area: Rect) {
+    let mut rows = vec![];
+    for (i, c) in app.eng.creds.iter().enumerate() {
+        let active = i == app.table_sel.min(app.eng.creds.len().saturating_sub(1));
+        let secret = match &c.decoded {
+            Some(d) => format!("{} → {}", c.secret, d),
+            None => c.secret.clone(),
+        };
+        rows.push(TLine::from(vec![
+            Span::styled(
+                format!(" {:<26}", truncate(&c.down_level(), 26)),
+                sel_style(active),
+            ),
+            Span::styled(
+                format!("{:<34}", truncate(&secret, 34)),
+                Style::default().fg(if active { Color::Black } else { Color::Green }),
+            ),
+            Span::styled(
+                format!("{:<10}", c.kind.label()),
+                Style::default().fg(if active { Color::Black } else { FAINT }),
+            ),
+            Span::styled(
+                truncate(&c.source, 24),
+                Style::default().fg(if active { Color::Black } else { MUTED }),
+            ),
+        ]));
+    }
+    if rows.is_empty() {
+        rows.push(TLine::from(Span::styled(
+            "  no credentials — /cred user:secret or harvest from output",
+            Style::default().fg(FAINT),
+        )));
+    }
+    view_frame(
+        app,
+        area,
+        f,
+        &format!("credentials ({})", app.eng.creds.len()),
+        rows,
+    );
+}
+
+fn draw_web_view(f: &mut Frame, app: &App, area: Rect) {
+    let mut rows = vec![];
+    for (base, paths) in &app.eng.web_paths {
+        rows.push(TLine::from(Span::styled(
+            format!(" {}  ({} paths)", base, paths.len()),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )));
+        for p in paths.iter().take(500) {
+            let code = p.status.map(|c| format!("[{c}]")).unwrap_or_default();
+            let cc = match p.status.map(|c| c / 100) {
+                Some(2) => Color::Green,
+                Some(3) => Color::Blue,
+                Some(4) => Color::Yellow,
+                Some(5) => Color::Red,
+                _ => FAINT,
+            };
+            rows.push(TLine::from(vec![
+                Span::styled(format!("   {:<6}", code), Style::default().fg(cc)),
+                Span::styled(truncate(&p.path, 60), Style::default().fg(Color::White)),
+                Span::styled(
+                    p.title
+                        .as_deref()
+                        .map(|t| format!("  {}", truncate(t, 30)))
+                        .unwrap_or_default(),
+                    Style::default().fg(FAINT),
+                ),
+            ]));
+        }
+    }
+    if rows.is_empty() {
+        rows.push(TLine::from(Span::styled(
+            "  no web content — run feroxbuster/ffuf/httpx/nuclei",
+            Style::default().fg(FAINT),
+        )));
+    }
+    view_frame(app, area, f, "web content", rows);
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!(
+            "{}…",
+            s.chars().take(n.saturating_sub(1)).collect::<String>()
+        )
+    }
+}
+
+fn os_short(h: &crate::model::Host) -> String {
+    match &h.os {
+        Some(os) => os.split_whitespace().take(2).collect::<Vec<_>>().join(" "),
+        None => String::new(),
     }
 }
