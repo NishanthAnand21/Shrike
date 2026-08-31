@@ -128,6 +128,7 @@ pub struct App {
     pub table_sel: usize,
     pub should_quit: bool,
     pub last_record: Option<u64>,
+    pub pending_shell: Option<String>,
 }
 
 pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
@@ -156,6 +157,7 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         table_sel: 0,
         should_quit: false,
         last_record: None,
+        pending_shell: None,
     };
     app.banner();
     app.refresh_suggestions();
@@ -181,22 +183,89 @@ impl App {
     }
 
     async fn event_loop(&mut self, term: &mut ratatui::DefaultTerminal) -> Result<()> {
-        let mut events = EventStream::new();
+        // Outer loop lets us drop and recreate the EventStream around an interactive
+        // handoff — a live stream would otherwise steal the child's keystrokes.
         loop {
-            term.draw(|f| super::render::draw(f, self))?;
-            if self.should_quit {
-                return Ok(());
-            }
-            tokio::select! {
-                maybe_ev = events.next() => {
-                    match maybe_ev {
-                        Some(Ok(Event::Key(k))) => self.on_key(k).await,
-                        Some(Ok(_)) => {}
-                        Some(Err(_)) | None => return Ok(()),
-                    }
+            let mut events = EventStream::new();
+            loop {
+                term.draw(|f| super::render::draw(f, self))?;
+                if self.should_quit {
+                    return Ok(());
                 }
-                Some(job_ev) = self.rx.recv() => self.on_job_event(job_ev),
+                if self.pending_shell.is_some() {
+                    break; // leave inner loop to run the handoff with the stream dropped
+                }
+                tokio::select! {
+                    maybe_ev = events.next() => {
+                        match maybe_ev {
+                            Some(Ok(Event::Key(k))) => self.on_key(k).await,
+                            Some(Ok(_)) => {}
+                            Some(Err(_)) | None => return Ok(()),
+                        }
+                    }
+                    Some(job_ev) = self.rx.recv() => self.on_job_event(job_ev),
+                }
             }
+            drop(events);
+            if let Some(cmd) = self.pending_shell.take() {
+                self.run_interactive(term, &cmd);
+            }
+        }
+    }
+
+    /// Suspend the TUI, run an interactive TTY child with inherited stdio, then
+    /// cleanly re-enter the TUI (research/SESSIONS.md).
+    fn run_interactive(&mut self, term: &mut ratatui::DefaultTerminal, cmd: &str) {
+        use crossterm::{
+            cursor::Show,
+            execute,
+            terminal::{
+                disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+            },
+        };
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        // Suspend: leave alternate screen, show cursor, disable raw mode.
+        let mut out = std::io::stdout();
+        let _ = disable_raw_mode();
+        let _ = execute!(out, LeaveAlternateScreen, Show);
+        let _ = writeln!(
+            out,
+            "\n\x1b[36m── shrike: interactive session ──\x1b[0m\n$ {cmd}\n"
+        );
+        let _ = out.flush();
+
+        // Run the child on the terminal, blocking the async runtime deliberately.
+        let status = tokio::task::block_in_place(|| {
+            Command::new("/bin/sh")
+                .arg("-c")
+                .arg(cmd)
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status()
+        });
+
+        let _ = writeln!(
+            out,
+            "\n\x1b[36m── session ended — press any key to return ──\x1b[0m"
+        );
+        let _ = out.flush();
+        // Wait for a keypress so the operator can read final output before redraw.
+        let _ = enable_raw_mode();
+        let _ = crossterm::event::read();
+
+        // Resume: re-enter alternate screen, raw mode, force a full redraw.
+        let _ = execute!(out, EnterAlternateScreen);
+        let _ = term.clear();
+
+        match status {
+            Ok(s) => self.push(Line::c(
+                format!("interactive session exited ({s})"),
+                Color::Cyan,
+            )),
+            Err(e) => self.push(Line::c(format!("! could not launch: {e}"), Color::Red)),
         }
     }
 
@@ -560,6 +629,16 @@ impl App {
                 Ok(p) => self.push(Line::c(format!("report → {}", p.display()), Color::Cyan)),
                 Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
             },
+            Action::Shell(cmd) => {
+                if cmd.trim().is_empty() {
+                    self.push(Line::c(
+                        "usage: /shell <interactive command>",
+                        Color::Yellow,
+                    ));
+                } else {
+                    self.pending_shell = Some(cmd);
+                }
+            }
             Action::ViewCmd(name) => {
                 let v = match name.trim().to_ascii_lowercase().as_str() {
                     "console" | "log" => Some(View::Console),
@@ -656,13 +735,10 @@ impl App {
             Ok(cmd) => {
                 if tool.interactive {
                     self.push(Line::c(
-                        format!(
-                            "⚠ {} needs a real TTY — run it in a separate terminal:",
-                            tool.name
-                        ),
-                        Color::Yellow,
+                        format!("→ launching {} (interactive)", tool.name),
+                        Color::Cyan,
                     ));
-                    self.push(Line::c(format!("  {cmd}"), Color::White));
+                    self.pending_shell = Some(cmd);
                     return;
                 }
                 self.launch(

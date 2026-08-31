@@ -6,6 +6,10 @@ All notable changes to shrike are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Interactive session handoff** (`/shell <cmd>`) — suspends the TUI, runs an
+  interactive TTY tool (evil-winrm, ssh, ftp, mssqlclient) with inherited stdio, then
+  cleanly re-enters the TUI. `/run` on an interactive catalog tool now drops you
+  straight into the session instead of printing the command.
 - **Tabbed dashboard views** — console / hosts / findings / creds / web, switchable
   with F1-F5, Shift-Tab or `/view`; each a navigable table (Enter focuses a host).
 - **Attack-chain guidance** (`/next`) — a state-aware engine that reads the engagement

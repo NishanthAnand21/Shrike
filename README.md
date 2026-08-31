@@ -114,6 +114,9 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/auto [phase]` | campaign mode — run all applicable installed tools across scope |
 | `/finding [sev] title @loc` | record a finding · `/html` export the HTML report |
 | `/history` · `/rerun <id>` | list past commands / re-run one |
+| `/next` | state-aware attack-chain guidance with MITRE tags |
+| `/shell <cmd>` | run an interactive TTY tool inline (session handoff) |
+| `/view <name>` · F1-F5 | switch dashboard views (console/hosts/findings/creds/web) |
 | `/cred [dom/]user:secret` | add a credential (hash or password) |
 | `/harvest <file\|text>` | scrape creds & intel from output |
 | `/set proxy\|iface\|domain\|dc\|<wl>` | set engagement variables |
@@ -121,8 +124,10 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/export` · `/star` · `/quit` | write notes / star last cmd / save & exit |
 | `PgUp/PgDn` · `Ctrl-C` | scroll · cancel running jobs (then quit) |
 
-Interactive tools (evil-winrm, ftp, mssqlclient, psexec…) are detected and the exact
-command is printed for you to run in a separate terminal — they need a real TTY.
+Interactive tools (evil-winrm, ftp, mssqlclient, ssh…) run **inline**: shrike
+suspends the dashboard, hands you the live session, and re-enters cleanly on exit.
+Use `/shell <cmd>` for an arbitrary interactive command, or just `/run` an
+interactive catalog tool.
 
 ## Payload generation
 
