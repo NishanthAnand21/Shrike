@@ -1,3 +1,4 @@
 /target
 *-shrike/
 /tmp
+.DS_Store
