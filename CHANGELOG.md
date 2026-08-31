@@ -6,6 +6,11 @@ All notable changes to shrike are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Managed reverse-shell listeners** (`/listen <port>`) — catch shells from generated
+  payloads as tracked sessions. Output streams into the console tagged by id;
+  `/sessions` lists them, `/send <id> <cmd>` fires one-off commands, `/interact <id>`
+  attaches a raw-mode terminal bridge (Ctrl-] detaches, leaving the shell alive),
+  `/kill <id>` closes a session or listener. The header shows a live-shell count.
 - **Interactive session handoff** (`/shell <cmd>`) — suspends the TUI, runs an
   interactive TTY tool (evil-winrm, ssh, ftp, mssqlclient) with inherited stdio, then
   cleanly re-enters the TUI. `/run` on an interactive catalog tool now drops you

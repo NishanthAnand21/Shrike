@@ -2,6 +2,7 @@
 
 use super::palette::{self, Action};
 use crate::catalog::{self, Ctx};
+use crate::engine::session::{self, Registry, SessionEvent, SessionId};
 use crate::engine::{Job, JobEvent, JobStatus, Runner, Workspace};
 use crate::model::state::{now_iso, Engagement, Record};
 use crate::model::{Credential, Phase, SecretKind};
@@ -14,7 +15,9 @@ use futures::StreamExt;
 use ratatui::style::Color;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 
 /// A styled line in the scrolling transcript.
 #[derive(Clone)]
@@ -129,10 +132,18 @@ pub struct App {
     pub should_quit: bool,
     pub last_record: Option<u64>,
     pub pending_shell: Option<String>,
+    pub registry: Arc<Mutex<Registry>>,
+    pub sess_rx: mpsc::UnboundedReceiver<SessionEvent>,
+    pub sess_tx: mpsc::UnboundedSender<SessionEvent>,
+    /// Set to request an interactive bridge with a caught session.
+    pub pending_interact: Option<SessionId>,
+    pub live_sessions: usize,
+    pub live_listeners: usize,
 }
 
 pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
     let (tx, rx) = mpsc::unbounded_channel();
+    let (sess_tx, sess_rx) = mpsc::unbounded_channel();
     let runner = Runner::new(parallel, tx);
     let mut app = App {
         ws,
@@ -158,6 +169,12 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         should_quit: false,
         last_record: None,
         pending_shell: None,
+        registry: Arc::new(Mutex::new(Registry::default())),
+        sess_rx,
+        sess_tx,
+        pending_interact: None,
+        live_sessions: 0,
+        live_listeners: 0,
     };
     app.banner();
     app.refresh_suggestions();
@@ -192,8 +209,8 @@ impl App {
                 if self.should_quit {
                     return Ok(());
                 }
-                if self.pending_shell.is_some() {
-                    break; // leave inner loop to run the handoff with the stream dropped
+                if self.pending_shell.is_some() || self.pending_interact.is_some() {
+                    break; // leave inner loop to run a handoff with the stream dropped
                 }
                 tokio::select! {
                     maybe_ev = events.next() => {
@@ -204,11 +221,15 @@ impl App {
                         }
                     }
                     Some(job_ev) = self.rx.recv() => self.on_job_event(job_ev),
+                    Some(se) = self.sess_rx.recv() => self.on_session_event(se).await,
                 }
             }
             drop(events);
             if let Some(cmd) = self.pending_shell.take() {
                 self.run_interactive(term, &cmd);
+            }
+            if let Some(id) = self.pending_interact.take() {
+                self.run_session_interact(term, id).await;
             }
         }
     }
@@ -267,6 +288,172 @@ impl App {
             )),
             Err(e) => self.push(Line::c(format!("! could not launch: {e}"), Color::Red)),
         }
+    }
+
+    async fn start_listener(&mut self, spec: &str) {
+        let port: u16 = match spec.trim().parse() {
+            Ok(p) => p,
+            Err(_) => {
+                self.push(Line::c("usage: /listen <port>", Color::Yellow));
+                return;
+            }
+        };
+        session::listen(self.registry.clone(), self.sess_tx.clone(), port).await;
+    }
+
+    async fn list_sessions(&mut self) {
+        let reg = self.registry.lock().await;
+        let mut lines = vec![];
+        if reg.listeners.is_empty() && reg.sessions.is_empty() {
+            lines.push((
+                "no listeners or sessions — /listen <port>".to_string(),
+                Color::Yellow,
+            ));
+        }
+        for l in reg.listeners.values() {
+            lines.push((
+                format!("  listener #{} on :{}", l.id, l.port),
+                Color::Magenta,
+            ));
+        }
+        for s in reg.sessions.values() {
+            let st = if s.alive { "live" } else { "dead" };
+            lines.push((
+                format!(
+                    "  session #{} {} from {} ({})",
+                    s.id, st, s.peer, s.connected
+                ),
+                if s.alive {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                },
+            ));
+        }
+        drop(reg);
+        for (t, c) in lines {
+            self.push(Line::c(t, c));
+        }
+    }
+
+    async fn send_to_session(&mut self, spec: &str) {
+        let (id_s, cmd) = match spec.trim().split_once(char::is_whitespace) {
+            Some(v) => v,
+            None => {
+                self.push(Line::c("usage: /send <id> <command>", Color::Yellow));
+                return;
+            }
+        };
+        let Ok(id) = id_s.parse::<u64>() else {
+            self.push(Line::c("usage: /send <id> <command>", Color::Yellow));
+            return;
+        };
+        let ok = {
+            let reg = self.registry.lock().await;
+            match reg.sessions.get(&id) {
+                Some(s) if s.alive => {
+                    s.send_cmd(cmd);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if !ok {
+            self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+        }
+    }
+
+    async fn kill_session(&mut self, spec: &str) {
+        let Ok(id) = spec.trim().parse::<u64>() else {
+            self.push(Line::c("usage: /kill <id>", Color::Yellow));
+            return;
+        };
+        let msg = {
+            let reg = self.registry.lock().await;
+            if let Some(s) = reg.sessions.get(&id) {
+                s.kill();
+                format!("killed session #{id}")
+            } else if let Some(l) = reg.listeners.get(&id) {
+                l.cancel.cancel();
+                format!("stopped listener #{id}")
+            } else {
+                format!("no session/listener #{id}")
+            }
+        };
+        self.push(Line::c(msg, Color::Yellow));
+    }
+
+    async fn on_session_event(&mut self, ev: SessionEvent) {
+        match ev {
+            SessionEvent::Listening { id, port } => {
+                self.push(Line::c(
+                    format!("● listener #{id} up on 0.0.0.0:{port}"),
+                    Color::Magenta,
+                ));
+            }
+            SessionEvent::ListenError { id, error } => {
+                self.registry.lock().await.listeners.remove(&id);
+                self.push(Line::c(format!("✗ listener #{id}: {error}"), Color::Red));
+            }
+            SessionEvent::Connected { id, peer } => {
+                self.push(Line::c(
+                    format!("★ shell #{id} from {peer} — /interact {id} to attach",),
+                    Color::Green,
+                ));
+            }
+            SessionEvent::Output { id, text } => {
+                for line in text.lines() {
+                    self.push(Line::out(format!("[{id}] {line}"), id));
+                }
+            }
+            SessionEvent::Closed { id, reason } => {
+                {
+                    let mut reg = self.registry.lock().await;
+                    if let Some(s) = reg.sessions.get_mut(&id) {
+                        s.alive = false;
+                    }
+                }
+                self.push(Line::c(
+                    format!("⊘ shell #{id} closed ({reason})"),
+                    Color::Yellow,
+                ));
+            }
+        }
+    }
+
+    /// Suspend the TUI and bridge the real terminal to a caught session until Ctrl-].
+    async fn run_session_interact(&mut self, term: &mut ratatui::DefaultTerminal, id: SessionId) {
+        use crossterm::{
+            cursor::Show,
+            execute,
+            terminal::{disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        };
+        use std::io::Write as _;
+
+        let done_rx = match session::request_interact(&self.registry, id).await {
+            Some(rx) => rx,
+            None => {
+                self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+                return;
+            }
+        };
+
+        let mut out = std::io::stdout();
+        let _ = disable_raw_mode();
+        let _ = execute!(out, LeaveAlternateScreen, Show);
+        let _ = writeln!(
+            out,
+            "\n\x1b[35m── shrike: interactive session #{id} — press Ctrl-] to detach ──\x1b[0m\n"
+        );
+        let _ = out.flush();
+
+        // The pump task now owns stdin in raw mode; wait until it detaches/closes.
+        let _ = done_rx.await;
+
+        let _ = execute!(out, EnterAlternateScreen);
+        let _ = crossterm::terminal::enable_raw_mode();
+        let _ = term.clear();
+        self.push(Line::c(format!("detached from session #{id}"), Color::Cyan));
     }
 
     async fn on_key(&mut self, k: KeyEvent) {
@@ -639,6 +826,17 @@ impl App {
                     self.pending_shell = Some(cmd);
                 }
             }
+            Action::Listen(spec) => self.start_listener(&spec).await,
+            Action::Sessions => self.list_sessions().await,
+            Action::SendCmd(spec) => self.send_to_session(&spec).await,
+            Action::Interact(spec) => match spec.trim().parse::<u64>() {
+                Ok(id) => self.pending_interact = Some(id),
+                Err(_) => self.push(Line::c(
+                    "usage: /interact <session-id>  (see /sessions)",
+                    Color::Yellow,
+                )),
+            },
+            Action::KillSession(spec) => self.kill_session(&spec).await,
             Action::ViewCmd(name) => {
                 let v = match name.trim().to_ascii_lowercase().as_str() {
                     "console" | "log" => Some(View::Console),

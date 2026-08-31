@@ -36,6 +36,10 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 - **Correlates loot automatically.** Every command's output is scraped for usernames,
   passwords, NT hashes, SPNs and domain facts. Base64 secrets are decoded. `(Pwn3d!)`
   marks a host OWNED. Recovered creds are substituted straight into the next command.
+- **Catch and drive shells.** A built-in reverse-shell listener (`/listen`) turns
+  payloads caught by shrike into managed sessions — stream their output, fire one-off
+  commands, or attach a full raw-mode terminal (`/interact`) and detach with Ctrl-]
+  without dropping the shell.
 - **Campaign mode.** `/auto [phase]` runs every applicable, installed tool for a
   phase across your whole scope at once — one command takes you from a target list
   through discovery, port-scan, web/SMB/AD enumeration and vuln-scanning.
@@ -126,6 +130,9 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/history` · `/rerun <id>` | list past commands / re-run one |
 | `/next` | state-aware attack-chain guidance with MITRE tags |
 | `/shell <cmd>` | run an interactive TTY tool inline (session handoff) |
+| `/listen <port>` | catch reverse shells as managed sessions |
+| `/sessions` · `/interact <id>` | list caught shells / attach (Ctrl-] detaches) |
+| `/send <id> <cmd>` · `/kill <id>` | fire a command into / close a session |
 | `/view <name>` · F1-F5 | switch dashboard views (console/hosts/findings/creds/web) |
 | `/cred [dom/]user:secret` | add a credential (hash or password) |
 | `/harvest <file\|text>` | scrape creds & intel from output |

@@ -86,6 +86,18 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Magenta),
         ));
     }
+    if app.live_sessions > 0 {
+        spans.push(Span::styled(
+            format!(
+                "  ⇲ {} shell{}",
+                app.live_sessions,
+                if app.live_sessions == 1 { "" } else { "s" }
+            ),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
     // Right-aligned view tabs.
     let mut tabs = vec![Span::raw("  ")];
     for v in View::ALL {

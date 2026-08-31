@@ -1,6 +1,7 @@
 //! Execution engine: workspace persistence + async job runner.
 
 pub mod exec;
+pub mod session;
 pub mod workspace;
 
 pub use exec::{Job, JobEvent, JobStatus, Runner};

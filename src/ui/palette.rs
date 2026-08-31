@@ -48,6 +48,16 @@ pub enum Action {
     ViewCmd(String),
     /// Suspend the TUI and run an interactive TTY command.
     Shell(String),
+    /// Start a reverse-shell listener on a port.
+    Listen(String),
+    /// List caught sessions and active listeners.
+    Sessions,
+    /// Send a one-off command into a session:  <id> <cmd>
+    SendCmd(String),
+    /// Attach interactively to a caught session by id.
+    Interact(String),
+    /// Kill a session or listener by id.
+    KillSession(String),
     /// Generate a payload: id [lhost] [lport] [+transform]
     Payload(String),
     /// Build an msfvenom command: id [lhost] [lport]
@@ -88,7 +98,7 @@ pub fn parse(line: &str) -> Action {
         }
         "suggest" | "s" => Suggest,
         "next" | "chain" | "n" => Guide,
-        "cancel" | "stop" | "kill" => Cancel(rest.parse().ok()),
+        "cancel" | "stop" => Cancel(rest.parse().ok()),
         "export" | "notes" => Export,
         "star" => Star,
         "phase" | "p" => Phase(if rest.is_empty() { None } else { Some(rest) }),
@@ -100,7 +110,12 @@ pub fn parse(line: &str) -> Action {
         "rerun" | "replay" => Rerun(rest),
         "html" | "report" => Html,
         "view" | "v" | "tab" => ViewCmd(rest),
-        "shell" | "connect" | "interactive" => Shell(rest),
+        "shell" | "connect" => Shell(rest),
+        "listen" | "l" => Listen(rest),
+        "sessions" | "ls" => Sessions,
+        "send" => SendCmd(rest),
+        "interact" | "i" => Interact(rest),
+        "kill" => KillSession(rest),
         "payload" | "gen" | "rev" => Payload(rest),
         "msf" | "msfvenom" => Msf(rest),
         "payloads" | "listpayloads" => Payloads(rest),
