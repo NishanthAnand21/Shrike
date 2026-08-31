@@ -82,6 +82,12 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 <sub><b>Attack-chain guidance</b> (<code>/next</code>) — reads the engagement state and recommends the next moves with rationale and MITRE ATT&CK tags.</sub>
 </td>
 </tr>
+<tr>
+<td colspan="2">
+<img src="docs/images/10-listener.png" alt="Reverse-shell listener"><br>
+<sub><b>Managed reverse-shell listener</b> (<code>/listen</code>) — catches shells from generated payloads as tracked sessions; stream output, <code>/send</code> commands, or <code>/interact</code> for a full raw-mode terminal (Ctrl-] detaches).</sub>
+</td>
+</tr>
 </table>
 
 ## Documentation
