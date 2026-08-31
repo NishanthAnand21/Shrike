@@ -1,6 +1,7 @@
 //! The engagement: everything we know, serialised to disk so a session resumes.
 
 use super::creds::{Credential, SecretKind};
+use super::finding::Finding;
 use super::phase::Phase;
 use super::target::{Host, Reach, Scope, Segment};
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,17 @@ pub struct Record {
     pub starred: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebPath {
+    pub path: String,
+    #[serde(default)]
+    pub status: Option<u16>,
+    #[serde(default)]
+    pub length: Option<u64>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Engagement {
     pub name: String,
@@ -79,6 +91,11 @@ pub struct Engagement {
     pub creds: Vec<Credential>,
     #[serde(default)]
     pub domain: DomainInfo,
+    #[serde(default)]
+    pub findings: Vec<Finding>,
+    /// Discovered web paths, keyed by host:port base URL -> list of paths.
+    #[serde(default)]
+    pub web_paths: BTreeMap<String, Vec<WebPath>>,
     #[serde(default)]
     pub records: Vec<Record>,
     #[serde(default)]
@@ -219,6 +236,31 @@ impl Engagement {
         self.segments = segs;
     }
 
+    /// Add a finding, de-duplicating on (source, title, location). Returns true if new.
+    pub fn add_finding(&mut self, f: Finding) -> bool {
+        let k = f.key();
+        if self.findings.iter().any(|e| e.key() == k) {
+            return false;
+        }
+        self.findings.push(f);
+        self.findings.sort_by_key(|a| a.severity.rank());
+        true
+    }
+
+    /// Record a discovered web path under a base URL. Returns true if new.
+    pub fn add_web_path(&mut self, base: &str, wp: WebPath) -> bool {
+        let entry = self.web_paths.entry(base.to_string()).or_default();
+        if entry.iter().any(|e| e.path == wp.path) {
+            return false;
+        }
+        entry.push(wp);
+        true
+    }
+
+    pub fn findings_by_sev(&self, sev: super::finding::Severity) -> usize {
+        self.findings.iter().filter(|f| f.severity == sev).count()
+    }
+
     pub fn push_record(&mut self, mut r: Record) -> u64 {
         let id = self.next_record_id.max(1);
         r.id = id;
@@ -241,11 +283,17 @@ impl Engagement {
     /// A short human summary used in the status bar.
     pub fn summary(&self) -> String {
         let open: usize = self.hosts.values().map(|h| h.open().count()).sum();
+        let fstr = if self.findings.is_empty() {
+            String::new()
+        } else {
+            format!(" · {} findings", self.findings.len())
+        };
         format!(
-            "{} hosts · {} open ports · {} creds · {} cmds{}",
+            "{} hosts · {} open ports · {} creds{} · {} cmds{}",
             self.hosts.len(),
             open,
             self.creds.len(),
+            fstr,
             self.records.len(),
             match &self.proxy {
                 Some(p) => format!(" · proxy {p}"),

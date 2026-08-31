@@ -36,6 +36,13 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 - **Correlates loot automatically.** Every command's output is scraped for usernames,
   passwords, NT hashes, SPNs and domain facts. Base64 secrets are decoded. `(Pwn3d!)`
   marks a host OWNED. Recovered creds are substituted straight into the next command.
+- **Campaign mode.** `/auto [phase]` runs every applicable, installed tool for a
+  phase across your whole scope at once — one command takes you from a target list
+  through discovery, port-scan, web/SMB/AD enumeration and vuln-scanning.
+- **First-class findings & reporting.** Structured output from nuclei/httpx/ffuf/
+  feroxbuster is parsed into findings and discovered paths; `/finding` records your
+  own. Export a self-contained **HTML report** (`/html`) or the phase-grouped
+  `notes.md`.
 - **Runs many hosts at once.** A bounded async worker pool streams each job's output
   back to the UI live, with per-job timeouts and Ctrl-C cancellation.
 - **Never loses work.** State is serialised to disk after every command; a session
@@ -104,6 +111,9 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/import <nmap.xml>` | ingest an nmap `-oX` scan |
 | `/focus <ip>` | set the current host context |
 | `/run <tool-id>` · `/raw <cmd>` | run a catalog tool / arbitrary shell |
+| `/auto [phase]` | campaign mode — run all applicable installed tools across scope |
+| `/finding [sev] title @loc` | record a finding · `/html` export the HTML report |
+| `/history` · `/rerun <id>` | list past commands / re-run one |
 | `/cred [dom/]user:secret` | add a credential (hash or password) |
 | `/harvest <file\|text>` | scrape creds & intel from output |
 | `/set proxy\|iface\|domain\|dc\|<wl>` | set engagement variables |
@@ -156,7 +166,7 @@ src/
   engine/    async job runner (streaming, timeouts, cancellation) + workspace persistence
   notes/     markdown report generator
   ui/        ratatui app: event loop, rendering, slash-command palette
-research/    TOOLS.md (tool catalog) + CHAINS.md (attack-chain graphs) + ARCH.md
+research/    tool catalogs, attack-chain graphs, output-schema + arch notes
 ```
 
 **Extending it:** add a `tool!(...)` entry to `src/catalog/tools.rs`. Declare its

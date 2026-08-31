@@ -1,6 +1,7 @@
 //! Markdown report generator. Groups executed commands by phase, and surfaces
 //! the topology, credential and domain intel the operator accumulated.
 
+pub mod html;
 use crate::model::state::Engagement;
 use crate::model::{Phase, Reach};
 use std::fmt::Write;
@@ -12,7 +13,9 @@ pub fn render(eng: &Engagement) -> String {
     let _ = writeln!(s, "{}\n", eng.summary());
 
     render_topology(&mut s, eng);
+    render_findings(&mut s, eng);
     render_intel(&mut s, eng);
+    render_web(&mut s, eng);
     render_commands(&mut s, eng);
     s
 }
@@ -141,6 +144,50 @@ fn render_intel(s: &mut String, eng: &Engagement) {
                 c.source,
                 val
             );
+        }
+        let _ = writeln!(s);
+    }
+}
+
+fn render_findings(s: &mut String, eng: &Engagement) {
+    if eng.findings.is_empty() {
+        return;
+    }
+    let _ = writeln!(s, "## Findings\n");
+    let _ = writeln!(s, "| sev | title | location | source | CVE |");
+    let _ = writeln!(s, "|-----|-------|----------|--------|-----|");
+    for f in &eng.findings {
+        let _ = writeln!(
+            s,
+            "| **{}** | {} | {} | {} | {} |",
+            f.severity.label().to_uppercase(),
+            f.title,
+            f.location
+                .as_deref()
+                .unwrap_or(f.host.as_deref().unwrap_or("")),
+            f.source,
+            f.cve.join(", ")
+        );
+    }
+    let _ = writeln!(s);
+}
+
+fn render_web(s: &mut String, eng: &Engagement) {
+    if eng.web_paths.is_empty() {
+        return;
+    }
+    let _ = writeln!(s, "## Discovered web content\n");
+    for (base, paths) in &eng.web_paths {
+        let _ = writeln!(s, "### {base}  ({} paths)\n", paths.len());
+        for p in paths.iter().take(200) {
+            let st = p.status.map(|c| format!(" [{c}]")).unwrap_or_default();
+            let ln = p.length.map(|l| format!(" {l}b")).unwrap_or_default();
+            let ti = p
+                .title
+                .as_deref()
+                .map(|t| format!(" — {t}"))
+                .unwrap_or_default();
+            let _ = writeln!(s, "- `{}`{}{}{}", p.path, st, ln, ti);
         }
         let _ = writeln!(s);
     }

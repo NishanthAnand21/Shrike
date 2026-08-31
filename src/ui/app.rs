@@ -354,6 +354,8 @@ impl App {
                 }
             }
         }
+        // Structured web-tool output → findings + discovered paths.
+        self.ingest_webtools(live);
         // Credential/intel harvest from any output.
         let before = self.eng.creds.len();
         let added = parse::intel::harvest(
@@ -407,6 +409,54 @@ impl App {
         self.eng.recompute_segments();
     }
 
+    /// Ingest structured web-tool output (nuclei/httpx/ffuf/feroxbuster) from a job's
+    /// artifact (or stdout capture) into findings and discovered web paths.
+    fn ingest_webtools(&mut self, live: &Live) {
+        use crate::parse::webtools;
+        // Prefer the artifact file (where -o/-json wrote); fall back to stdout.
+        let read = |p: &std::path::Path| std::fs::read_to_string(p).ok();
+        let text = live
+            .artifact
+            .as_deref()
+            .and_then(read)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| live.lines.join("\n"));
+        if text.trim().is_empty() {
+            return;
+        }
+        let t = live.tool.as_str();
+        let ing = if t.starts_with("nuclei") {
+            webtools::ingest_nuclei(&mut self.eng, &text)
+        } else if t.starts_with("httpx") {
+            webtools::ingest_httpx(&mut self.eng, &text)
+        } else if t.starts_with("ffuf") {
+            webtools::ingest_ffuf(&mut self.eng, &text)
+        } else if t.starts_with("feroxbuster") || t.starts_with("ferox") {
+            webtools::ingest_feroxbuster(&mut self.eng, &text)
+        } else if t.starts_with("subfinder")
+            || t.starts_with("dnsx")
+            || t.starts_with("assetfinder")
+        {
+            let subs = webtools::ingest_subdomains(&mut self.eng, &text);
+            if subs > 0 {
+                self.push(Line::c(format!("  ⇒ {subs} subdomain(s)"), Color::Cyan));
+            }
+            return;
+        } else {
+            return;
+        };
+        if ing.any() {
+            let mut bits = vec![];
+            if ing.findings > 0 {
+                bits.push(format!("{} finding(s)", ing.findings));
+            }
+            if ing.paths > 0 {
+                bits.push(format!("{} web path(s)", ing.paths));
+            }
+            self.push(Line::c(format!("  ⇒ {}", bits.join(", ")), Color::Cyan));
+        }
+    }
+
     async fn dispatch(&mut self, line: &str) {
         let action = palette::parse(line);
         match action {
@@ -444,6 +494,14 @@ impl App {
             Action::TogglePanel => {
                 self.show_panel = !self.show_panel;
             }
+            Action::Auto(spec) => self.auto_run(&spec).await,
+            Action::AddFinding(spec) => self.add_finding_cmd(&spec),
+            Action::History => self.show_history(),
+            Action::Rerun(id) => self.rerun(&id).await,
+            Action::Html => match self.ws.export_html(&self.eng) {
+                Ok(p) => self.push(Line::c(format!("report → {}", p.display()), Color::Cyan)),
+                Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+            },
             Action::Payload(spec) => self.gen_payload(&spec),
             Action::Msf(spec) => self.gen_msf(&spec),
             Action::Payloads(filter) => self.list_payloads(&filter),
@@ -623,6 +681,206 @@ impl App {
             output_file: out,
             timeout_secs: timeout,
         });
+    }
+
+    /// Campaign mode: run every applicable, installed, non-interactive tool for a
+    /// phase across the current scope (focused host, or all hosts if none focused).
+    async fn auto_run(&mut self, spec: &str) {
+        let phase: Option<Phase> = spec.trim().parse().ok();
+        // Which hosts?
+        let hosts: Vec<String> = match &self.focus {
+            Some(ip) => vec![ip.clone()],
+            None => {
+                if self.eng.hosts.is_empty() {
+                    self.push(Line::c(
+                        "no hosts in scope — /target <ip|cidr> or /run nmap-full first",
+                        Color::Yellow,
+                    ));
+                    return;
+                }
+                self.eng.hosts.keys().cloned().collect()
+            }
+        };
+
+        let label = phase
+            .map(|p| p.title().to_string())
+            .unwrap_or_else(|| "all phases".into());
+        self.push(Line::c(
+            format!("▶ auto: {} across {} host(s)", label, hosts.len()),
+            Color::Magenta,
+        ));
+
+        let mut launched = 0;
+        let mut skipped_missing = 0;
+        for ip in hosts {
+            let host = self.eng.hosts.get(&ip).cloned();
+            let mut tools = catalog::suggest(&self.eng, host.as_ref());
+            tools.retain(|t| {
+                phase.map(|p| t.phase == p).unwrap_or(true)
+                    && !t.interactive
+                    // In auto mode, don't fire slow full sweeps or destructive exploits
+                    // unless the operator asked for that exact phase.
+                    && (phase.is_some()
+                        || matches!(
+                            t.phase,
+                            Phase::Discovery
+                                | Phase::PortScan
+                                | Phase::ServiceEnum
+                                | Phase::WebEnum
+                                | Phase::DirEnum
+                                | Phase::SmbEnum
+                                | Phase::AdEnum
+                                | Phase::VulnScan
+                        ))
+            });
+            for tool in tools {
+                if !catalog::is_available(tool) {
+                    skipped_missing += 1;
+                    continue;
+                }
+                // Reserve id + artifact path (mirrors run_tool).
+                let id = self.eng.next_record_id.max(1);
+                self.eng.next_record_id = id + 1;
+                let target = Some(ip.clone());
+                let ext = if tool.template.contains("-oX") {
+                    "xml"
+                } else if tool.template.contains("-oJ") || tool.template.contains("-of json") {
+                    "json"
+                } else {
+                    "out"
+                };
+                let artifact = self
+                    .ws
+                    .artifact_file(id, target.as_deref(), tool.phase.slug(), tool.id, ext)
+                    .ok();
+                let outdir = self.ws.phase_dir(target.as_deref(), tool.phase.slug()).ok();
+                let mut ctx = Ctx::from_engagement(&self.eng, host.as_ref(), None);
+                if let Some(a) = &artifact {
+                    ctx.set("outfile", a.to_string_lossy().into_owned());
+                }
+                if let Some(d) = &outdir {
+                    ctx.set("outdir", d.to_string_lossy().into_owned());
+                }
+                if let Ok(cmd) = tool.render(&ctx) {
+                    self.launch(
+                        id,
+                        tool.id,
+                        tool.phase,
+                        tool.speed.timeout_secs(),
+                        target,
+                        cmd,
+                        "",
+                        artifact,
+                    )
+                    .await;
+                    launched += 1;
+                }
+            }
+        }
+        self.push(Line::c(
+            format!(
+                "  queued {launched} job(s){}",
+                if skipped_missing > 0 {
+                    format!(" · {skipped_missing} skipped (not installed)")
+                } else {
+                    String::new()
+                }
+            ),
+            Color::Magenta,
+        ));
+    }
+
+    /// Manually record a finding:  [sev] title @location
+    fn add_finding_cmd(&mut self, spec: &str) {
+        use crate::model::{Finding, Severity};
+        let spec = spec.trim();
+        if spec.is_empty() {
+            self.push(Line::c(
+                "usage: /finding [critical|high|medium|low] title @location",
+                Color::Yellow,
+            ));
+            return;
+        }
+        let (loc, rest) = match spec.split_once('@') {
+            Some((r, l)) => (Some(l.trim().to_string()), r.trim()),
+            None => (None, spec),
+        };
+        let mut words = rest.splitn(2, char::is_whitespace);
+        let first = words.next().unwrap_or("");
+        let (sev, title) = match first.to_ascii_lowercase().as_str() {
+            "critical" | "high" | "medium" | "low" | "info" => (
+                Severity::parse(first),
+                words.next().unwrap_or("").trim().to_string(),
+            ),
+            _ => (Severity::Medium, rest.to_string()),
+        };
+        if title.is_empty() {
+            self.push(Line::c("finding needs a title", Color::Yellow));
+            return;
+        }
+        let mut f = Finding::new("manual", sev, title);
+        f.location = loc.clone().or_else(|| self.focus.clone());
+        f.host = self.focus.clone();
+        if self.eng.add_finding(f) {
+            self.push(Line::c(
+                format!("+ finding recorded [{}]", sev.label()),
+                Color::Green,
+            ));
+        }
+    }
+
+    fn show_history(&mut self) {
+        if self.eng.records.is_empty() {
+            self.push(Line::plain("no commands run yet"));
+            return;
+        }
+        self.push(Line::c("command history:", Color::Cyan));
+        let lines: Vec<String> = self
+            .eng
+            .records
+            .iter()
+            .rev()
+            .take(30)
+            .map(|r| {
+                let code = r
+                    .exit_code
+                    .map(|c| format!("exit {c}"))
+                    .unwrap_or_else(|| "?".into());
+                format!(
+                    "  #{:<3} [{}] {:<6} {}",
+                    r.id,
+                    r.phase.slug(),
+                    code,
+                    r.command
+                )
+            })
+            .collect();
+        for l in lines {
+            self.push(Line::plain(l));
+        }
+    }
+
+    async fn rerun(&mut self, id: &str) {
+        let rid: u64 = match id.trim().parse() {
+            Ok(n) => n,
+            Err(_) => {
+                self.push(Line::c("usage: /rerun <id>  (see /history)", Color::Yellow));
+                return;
+            }
+        };
+        let rec = self.eng.records.iter().find(|r| r.id == rid).cloned();
+        match rec {
+            Some(r) => {
+                self.push(Line::c(format!("re-running #{rid}"), Color::Cyan));
+                let phase = r.phase;
+                let target = r.target.clone();
+                let nid = self.eng.next_record_id.max(1);
+                self.eng.next_record_id = nid + 1;
+                self.launch(nid, &r.tool, phase, 0, target, r.command.clone(), "", None)
+                    .await;
+            }
+            None => self.push(Line::c(format!("no record #{rid}"), Color::Yellow)),
+        }
     }
 
     fn set_focus(&mut self, ip: &str) {

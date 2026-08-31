@@ -119,6 +119,14 @@ impl Workspace {
             .into_owned()
     }
 
+    /// Write a self-contained HTML report.
+    pub fn export_html(&self, eng: &Engagement) -> Result<PathBuf> {
+        let html = crate::notes::html::render(eng);
+        let path = self.root.join("report.html");
+        std::fs::write(&path, html)?;
+        Ok(path)
+    }
+
     /// Regenerate notes.md from the engagement.
     pub fn export_notes(&self, eng: &Engagement) -> Result<PathBuf> {
         let md = crate::notes::render(eng);

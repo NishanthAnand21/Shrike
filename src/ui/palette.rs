@@ -32,6 +32,16 @@ pub enum Action {
     Quit,
     /// Toggle the dashboard side panel.
     TogglePanel,
+    /// Auto-run all applicable installed tools for a phase (or the next phase) across scope.
+    Auto(String),
+    /// Add a finding: [sev] title @location
+    AddFinding(String),
+    /// Show command history.
+    History,
+    /// Re-run a previous command by record id.
+    Rerun(String),
+    /// Export the HTML report.
+    Html,
     /// Generate a payload: id [lhost] [lport] [+transform]
     Payload(String),
     /// Build an msfvenom command: id [lhost] [lport]
@@ -77,6 +87,11 @@ pub fn parse(line: &str) -> Action {
         "phase" | "p" => Phase(if rest.is_empty() { None } else { Some(rest) }),
         "help" | "h" | "?" => Help,
         "panel" | "dash" => TogglePanel,
+        "auto" | "campaign" | "a" => Auto(rest),
+        "finding" | "vuln" | "f" => AddFinding(rest),
+        "history" | "hist" => History,
+        "rerun" | "replay" => Rerun(rest),
+        "html" | "report" => Html,
         "payload" | "gen" | "rev" => Payload(rest),
         "msf" | "msfvenom" => Msf(rest),
         "payloads" | "listpayloads" => Payloads(rest),
