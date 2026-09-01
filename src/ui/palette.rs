@@ -58,6 +58,14 @@ pub enum Action {
     Interact(String),
     /// Kill a session or listener by id.
     KillSession(String),
+    /// Run recon through a session:  <id> [win] [full]
+    SessEnum(String),
+    /// Send a PTY-upgrade one-liner to a session.
+    SessUpgrade(String),
+    /// Upload a local file to a session:  <id> <local> [remote]
+    Upload(String),
+    /// Download a remote file from a session:  <id> <remote>
+    Download(String),
     /// Generate a payload: id [lhost] [lport] [+transform]
     Payload(String),
     /// Build an msfvenom command: id [lhost] [lport]
@@ -116,6 +124,10 @@ pub fn parse(line: &str) -> Action {
         "send" => SendCmd(rest),
         "interact" | "i" => Interact(rest),
         "kill" => KillSession(rest),
+        "enum" | "recon" => SessEnum(rest),
+        "upgrade" | "pty" => SessUpgrade(rest),
+        "upload" | "put" => Upload(rest),
+        "download" | "get" => Download(rest),
         "payload" | "gen" | "rev" => Payload(rest),
         "msf" | "msfvenom" => Msf(rest),
         "payloads" | "listpayloads" => Payloads(rest),
