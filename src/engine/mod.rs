@@ -1,6 +1,7 @@
 //! Execution engine: workspace persistence + async job runner.
 
 pub mod exec;
+pub mod modules;
 pub mod postex;
 pub mod session;
 pub mod workspace;

@@ -1125,6 +1125,11 @@ impl App {
             Action::Download(spec) => self.session_download(&spec).await,
             Action::ScopeCmd(spec) => self.scope_cmd(&spec),
             Action::EngagementCmd(spec) => self.engagement_cmd(&spec),
+            Action::Vault => self.export_vault(),
+            Action::Module(spec) => self.run_module(&spec).await,
+            Action::Modules => self.list_modules(),
+            Action::Search(term) => self.search(&term),
+            Action::Rc(path) => self.run_rc(&path).await,
             Action::ViewCmd(name) => {
                 let v = match name.trim().to_ascii_lowercase().as_str() {
                     "console" | "log" => Some(View::Console),
@@ -1660,6 +1665,186 @@ impl App {
                     .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
                 self.scope_allow_override
             }
+        }
+    }
+
+    fn export_vault(&mut self) {
+        if self.eng.creds.is_empty() {
+            self.push(Line::c("no credentials to export", Color::Yellow));
+            return;
+        }
+        match crate::notes::vault::export(&self.eng, &self.ws.root) {
+            Ok(files) => {
+                self.push(Line::c(
+                    format!("exported credential vault ({} files):", files.len()),
+                    Color::Cyan,
+                ));
+                for p in files {
+                    self.push(Line::plain(format!("  {}", self.ws.rel(&p))));
+                }
+            }
+            Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+        }
+    }
+
+    fn list_modules(&mut self) {
+        self.push(Line::c(
+            "session post-modules (/module <name> <session-id>):",
+            Color::Cyan,
+        ));
+        let rows: Vec<String> = crate::engine::modules::MODULES
+            .iter()
+            .map(|m| {
+                let os = match m.os {
+                    Some(crate::engine::postex::Os::Linux) => "linux",
+                    Some(crate::engine::postex::Os::Windows) => "win",
+                    None => "any",
+                };
+                format!("  {:<22} [{:<5}] {}", m.name, os, m.desc)
+            })
+            .collect();
+        for r in rows {
+            self.push(Line::plain(r));
+        }
+    }
+
+    async fn run_module(&mut self, spec: &str) {
+        let mut it = spec.split_whitespace();
+        let name = it.next().unwrap_or("");
+        let id: SessionId = match it.next().and_then(|s| s.parse().ok()) {
+            Some(i) => i,
+            None => {
+                self.push(Line::c(
+                    "usage: /module <name> <session-id>  (/modules to list)",
+                    Color::Yellow,
+                ));
+                return;
+            }
+        };
+        let Some(m) = crate::engine::modules::by_name(name) else {
+            self.push(Line::c(
+                format!("? no module '{name}' — /modules to list"),
+                Color::Yellow,
+            ));
+            return;
+        };
+        let sent = {
+            let reg = self.registry.lock().await;
+            match reg.sessions.get(&id) {
+                Some(sh) if sh.alive => {
+                    for (label, cmd) in m.steps {
+                        sh.send_cmd(&format!("echo ===[{label}]===; {cmd}"));
+                    }
+                    true
+                }
+                _ => false,
+            }
+        };
+        if sent {
+            self.push(Line::c(
+                format!(
+                    "→ ran module '{}' ({} steps) on session #{id}  [{}]",
+                    m.name,
+                    m.steps.len(),
+                    m.mitre.join(",")
+                ),
+                Color::Cyan,
+            ));
+        } else {
+            self.push(Line::c(format!("no live session #{id}"), Color::Yellow));
+        }
+    }
+
+    fn search(&mut self, term: &str) {
+        let q = term.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            self.push(Line::c("usage: /search <term>", Color::Yellow));
+            return;
+        }
+        let mut hits: Vec<(String, Color)> = vec![];
+        for (ip, h) in &self.eng.hosts {
+            let blob = format!(
+                "{ip} {} {}",
+                h.hostnames.join(" "),
+                h.os.as_deref().unwrap_or("")
+            );
+            if blob.to_ascii_lowercase().contains(&q) {
+                hits.push((
+                    format!("  host   {ip} {}", h.hostnames.join(",")),
+                    Color::White,
+                ));
+            }
+            for s in h.open() {
+                if s.banner().to_ascii_lowercase().contains(&q) || s.name.contains(&q) {
+                    hits.push((
+                        format!("  svc    {ip}:{} {} {}", s.port, s.name, s.banner()),
+                        Color::White,
+                    ));
+                }
+            }
+        }
+        for c in &self.eng.creds {
+            if format!("{} {} {}", c.user, c.secret, c.source)
+                .to_ascii_lowercase()
+                .contains(&q)
+            {
+                hits.push((
+                    format!("  cred   {} : {}", c.down_level(), c.secret),
+                    Color::Green,
+                ));
+            }
+        }
+        for f in &self.eng.findings {
+            if format!("{} {}", f.title, f.location.as_deref().unwrap_or(""))
+                .to_ascii_lowercase()
+                .contains(&q)
+            {
+                hits.push((
+                    format!("  find   [{}] {}", f.severity.label(), f.title),
+                    Color::LightRed,
+                ));
+            }
+        }
+        for (base, paths) in &self.eng.web_paths {
+            for p in paths {
+                if p.path.to_ascii_lowercase().contains(&q) {
+                    hits.push((format!("  web    {base}{}", p.path), Color::Cyan));
+                }
+            }
+        }
+        if hits.is_empty() {
+            self.push(Line::c(format!("no matches for '{q}'"), Color::Yellow));
+        } else {
+            self.push(Line::c(
+                format!("{} match(es) for '{q}':", hits.len()),
+                Color::Cyan,
+            ));
+            for (l, c) in hits.into_iter().take(60) {
+                self.push(Line::c(l, c));
+            }
+        }
+    }
+
+    async fn run_rc(&mut self, path: &str) {
+        let content = match std::fs::read_to_string(path.trim()) {
+            Ok(c) => c,
+            Err(e) => {
+                self.push(Line::c(format!("! {path}: {e}"), Color::Red));
+                return;
+            }
+        };
+        let lines: Vec<String> = content
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        self.push(Line::c(
+            format!("▶ resource script: {} command(s)", lines.len()),
+            Color::Magenta,
+        ));
+        for line in lines {
+            self.push(Line::c(format!("rc> {line}"), Color::DarkGray));
+            Box::pin(self.dispatch(&line)).await;
         }
     }
 

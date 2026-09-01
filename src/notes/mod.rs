@@ -2,6 +2,7 @@
 //! the topology, credential and domain intel the operator accumulated.
 
 pub mod html;
+pub mod vault;
 use crate::model::state::Engagement;
 use crate::model::{Phase, Reach};
 use std::fmt::Write;
