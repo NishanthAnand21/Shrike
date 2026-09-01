@@ -136,3 +136,54 @@ fn tools_with_outfile_render_when_provided() {
         "catalog references unfillable placeholders: {unknown:?}"
     );
 }
+
+#[test]
+fn every_command_is_in_the_palette_registry() {
+    // Guards the recurring drift where a command has a parse arm but is missing
+    // from COMMANDS (so it works when typed but never shows in autocomplete/help).
+    let src = include_str!("../src/ui/palette.rs");
+    // Names + aliases present in the COMMANDS registry.
+    let mut known = std::collections::HashSet::new();
+    let mut in_registry = false;
+    for line in src.lines() {
+        let l = line.trim();
+        if l.starts_with("pub static COMMANDS") {
+            in_registry = true;
+        }
+        if !in_registry {
+            continue;
+        }
+        // name: "..."  (handles both single-line and fmt'd multi-line Cmd entries)
+        if let Some(i) = l.find("name: \"") {
+            if let Some(name) = l[i + 7..].split('"').next() {
+                known.insert(name.to_string());
+            }
+        }
+        // aliases: &["x", "y"]
+        if let Some(ai) = l.find("aliases: &[") {
+            for tok in l[ai..].split('"').skip(1).step_by(2) {
+                if !tok.is_empty() {
+                    known.insert(tok.to_string());
+                }
+            }
+        }
+    }
+    // Command literals used in the parse() match arms: lines like
+    //   "listen" | "l" => Listen(rest),
+    let mut missing = vec![];
+    for line in src.lines() {
+        let l = line.trim();
+        if l.contains("=>") && l.starts_with('"') {
+            let arm = &l[..l.find("=>").unwrap()];
+            for tok in arm.split('"').skip(1).step_by(2) {
+                if !tok.is_empty() && !known.contains(tok) {
+                    missing.push(tok.to_string());
+                }
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "these parse-arm commands are missing from the COMMANDS registry: {missing:?}"
+    );
+}

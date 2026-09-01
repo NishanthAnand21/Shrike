@@ -235,6 +235,18 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &["host", "use"],
     },
     Cmd {
+        name: "scope",
+        args: "in|out|allow|show <cidr>",
+        desc: "engagement scope + out-of-scope guard",
+        aliases: &[],
+    },
+    Cmd {
+        name: "engagement",
+        args: "client=.. operator=..",
+        desc: "set engagement metadata for the report",
+        aliases: &["eng"],
+    },
+    Cmd {
         name: "cred",
         args: "[dom/]user:secret",
         desc: "add a credential (hash or password)",
@@ -253,9 +265,21 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &["vuln", "f"],
     },
     Cmd {
+        name: "search",
+        args: "<term>",
+        desc: "search hosts/findings/creds/web",
+        aliases: &["grep"],
+    },
+    Cmd {
+        name: "vault",
+        args: "",
+        desc: "export creds (hashcat/john/csv/userpass)",
+        aliases: &[],
+    },
+    Cmd {
         name: "payload",
         args: "<id> [lhost] [lport] [+xform] [--listen]",
-        desc: "generate a payload (+ matching listener)",
+        desc: "generate a payload (+ listener)",
         aliases: &["gen", "rev"],
     },
     Cmd {
@@ -268,13 +292,13 @@ pub static COMMANDS: &[Cmd] = &[
         name: "payloads",
         args: "[filter]",
         desc: "list available payloads",
-        aliases: &[],
+        aliases: &["listpayloads"],
     },
     Cmd {
         name: "listen",
         args: "<port> [--attach]",
-        desc: "reverse-shell listener (auto-attach on catch)",
-        aliases: &[],
+        desc: "reverse-shell listener (auto-attach)",
+        aliases: &["l"],
     },
     Cmd {
         name: "sessions",
@@ -295,10 +319,70 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &[],
     },
     Cmd {
+        name: "enum",
+        args: "<id> [win] [full]",
+        desc: "run recon through a caught shell",
+        aliases: &["recon"],
+    },
+    Cmd {
+        name: "upgrade",
+        args: "<id> [win]",
+        desc: "send a PTY-upgrade one-liner to a shell",
+        aliases: &["pty"],
+    },
+    Cmd {
+        name: "upload",
+        args: "<id> <local> [remote]",
+        desc: "upload a file to a shell (base64)",
+        aliases: &["put"],
+    },
+    Cmd {
+        name: "download",
+        args: "<id> <remote>",
+        desc: "download a file from a shell -> loot",
+        aliases: &["get"],
+    },
+    Cmd {
+        name: "module",
+        args: "<name> <id>",
+        desc: "run a named session post-module",
+        aliases: &["post"],
+    },
+    Cmd {
+        name: "modules",
+        args: "",
+        desc: "list session post-modules",
+        aliases: &[],
+    },
+    Cmd {
         name: "kill",
         args: "<id>",
         desc: "kill a session or listener",
         aliases: &[],
+    },
+    Cmd {
+        name: "msfrpc",
+        args: "<host> <port> <user> <pass>",
+        desc: "connect to a Metasploit RPC daemon",
+        aliases: &["msfconnect"],
+    },
+    Cmd {
+        name: "msfc",
+        args: "<command>",
+        desc: "run a command in the MSF console",
+        aliases: &["msfconsole"],
+    },
+    Cmd {
+        name: "msfsessions",
+        args: "",
+        desc: "list Metasploit sessions",
+        aliases: &[],
+    },
+    Cmd {
+        name: "web",
+        args: "[port|stop]",
+        desc: "read-only web dashboard in the browser",
+        aliases: &["dashboard"],
     },
     Cmd {
         name: "set",
@@ -316,7 +400,7 @@ pub static COMMANDS: &[Cmd] = &[
         name: "view",
         args: "hosts|findings|creds|web|console",
         desc: "switch dashboard view (or F1-F5)",
-        aliases: &["tab"],
+        aliases: &["tab", "v"],
     },
     Cmd {
         name: "panel",
@@ -335,6 +419,12 @@ pub static COMMANDS: &[Cmd] = &[
         args: "",
         desc: "write notes.md now",
         aliases: &["notes"],
+    },
+    Cmd {
+        name: "rc",
+        args: "<file>",
+        desc: "replay commands from a resource file",
+        aliases: &["resource"],
     },
     Cmd {
         name: "history",
