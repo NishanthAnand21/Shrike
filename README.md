@@ -123,7 +123,8 @@ ties the tools you already have into one coherent, scope-guarded, well-documente
 | Reverse-shell listener + post-ex | ✅ built-in | ✅ | ✅ (meterpreter) |
 | Credential vault + loot + report | ✅ | ✅ | ✅ |
 | Metasploit integration | ✅ via `msfrpcd` | — | ✅ |
-| Custom agents / implants | ❌ (by design) | ✅ | ✅ |
+| Meterpreter sessions | ✅ via Metasploit RPC | ✅ | ✅ |
+| Custom agents / implants | ❌ (by design — uses MSF's) | ✅ | ✅ |
 
 Use shrike when you want MSF/Viper's *workflow* — sessions, loot, modules, a report — in
 one fast local binary that drives your own toolchain and keeps you inside the rules of
@@ -185,6 +186,8 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/loot` · `/workspace use <name>` | list captured loot · switch engagements |
 | `/web [port]` | read-only web dashboard in the browser |
 | `/msfrpc <host> <port> <u> <p>` · `/msfc <cmd>` | drive a Metasploit RPC daemon |
+| `/msfhandler <payload>` · `/met <sid> <cmd>` | spawn + drive a meterpreter session |
+| `/sql <SELECT …>` | query the engagement SQLite database |
 | `/payload <id> … --listen` | generate a reverse shell **and** start its listener |
 | `/listen <port> [--attach]` | catch reverse shells (--attach = auto-enter the session) |
 | `/sessions` · `/interact <id>` | list caught shells / attach (Ctrl-] detaches) |

@@ -21,6 +21,10 @@ fn s(v: &str) -> Value {
     Value::String(v.to_string().into())
 }
 
+fn si(n: i64) -> Value {
+    Value::Integer(n.into())
+}
+
 /// Look up a string field in a msgpack map reply.
 fn map_get<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
     if let Value::Map(entries) = v {
@@ -151,6 +155,96 @@ impl MsfClient {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         Ok((data, busy))
+    }
+
+    /// module.execute(module_type, module_name, options) — run a module.
+    pub async fn module_execute(
+        &self,
+        mtype: &str,
+        name: &str,
+        opts: &[(&str, &str)],
+    ) -> Result<Value> {
+        let optmap = Value::Map(opts.iter().map(|(k, v)| (s(k), s(v))).collect());
+        call(
+            &self.host,
+            self.port,
+            vec![
+                s("module.execute"),
+                s(&self.token),
+                s(mtype),
+                s(name),
+                optmap,
+            ],
+        )
+        .await
+    }
+
+    /// Start exploit/multi/handler for a (meterpreter) payload. Returns the job id.
+    pub async fn start_handler(&self, payload: &str, lhost: &str, lport: &str) -> Result<String> {
+        let r = self
+            .module_execute(
+                "exploit",
+                "multi/handler",
+                &[
+                    ("PAYLOAD", payload),
+                    ("LHOST", lhost),
+                    ("LPORT", lport),
+                    ("ExitOnSession", "false"),
+                ],
+            )
+            .await?;
+        Ok(map_get(&r, "job_id")
+            .map(as_string)
+            .unwrap_or_else(|| "?".into()))
+    }
+
+    /// Write a command to a meterpreter session (newline appended).
+    pub async fn meterpreter_write(&self, sid: i64, data: &str) -> Result<()> {
+        let line = format!("{data}\n");
+        call(
+            &self.host,
+            self.port,
+            vec![
+                s("session.meterpreter_write"),
+                s(&self.token),
+                si(sid),
+                s(&line),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Read buffered output from a meterpreter session.
+    pub async fn meterpreter_read(&self, sid: i64) -> Result<String> {
+        let r = call(
+            &self.host,
+            self.port,
+            vec![s("session.meterpreter_read"), s(&self.token), si(sid)],
+        )
+        .await?;
+        Ok(map_get(&r, "data").map(as_string).unwrap_or_default())
+    }
+
+    /// Write/read for a plain shell session.
+    pub async fn shell_write(&self, sid: i64, data: &str) -> Result<()> {
+        let line = format!("{data}\n");
+        call(
+            &self.host,
+            self.port,
+            vec![s("session.shell_write"), s(&self.token), si(sid), s(&line)],
+        )
+        .await?;
+        Ok(())
+    }
+    pub async fn shell_read(&self, sid: i64) -> Result<String> {
+        let r = call(
+            &self.host,
+            self.port,
+            vec![s("session.shell_read"), s(&self.token), si(sid)],
+        )
+        .await?;
+        Ok(map_get(&r, "data").map(as_string).unwrap_or_default())
     }
 
     /// session.list -> a human summary line per active session.

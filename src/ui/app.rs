@@ -1232,6 +1232,8 @@ impl App {
             Action::MsfRpc(spec) => self.msf_connect(&spec).await,
             Action::MsfConsole(cmd) => self.msf_console_run(&cmd).await,
             Action::MsfSessions => self.msf_sessions().await,
+            Action::MsfHandler(spec) => self.msf_handler(&spec).await,
+            Action::MsfMeterpreter(spec) => self.msf_meterpreter(&spec).await,
             Action::Web(spec) => self.web_cmd(&spec),
         }
         let _ = self.ws.save(&self.eng);
@@ -1336,6 +1338,85 @@ impl App {
         }
         for l in lines {
             self.push(Line::out(l, 0));
+        }
+    }
+
+    async fn msf_handler(&mut self, spec: &str) {
+        let Some(client) = self.msf.clone() else {
+            self.push(Line::c(
+                "not connected — /msfrpc <host> <port> <user> <pass>",
+                Color::Yellow,
+            ));
+            return;
+        };
+        let p: Vec<&str> = spec.split_whitespace().collect();
+        if p.is_empty() {
+            self.push(Line::c("usage: /msfhandler <payload> [lhost] [lport]  e.g. windows/x64/meterpreter/reverse_tcp", Color::Yellow));
+            return;
+        }
+        let payload = p[0].to_string();
+        let lhost = p
+            .get(1)
+            .map(|s| s.to_string())
+            .or_else(|| self.eng.lhost.clone())
+            .unwrap_or_else(|| "0.0.0.0".into());
+        let lport = p
+            .get(2)
+            .map(|s| s.to_string())
+            .or_else(|| self.eng.lport.clone())
+            .unwrap_or_else(|| "4444".into());
+        match client.start_handler(&payload, &lhost, &lport).await {
+            Ok(job) => self.push(Line::c(
+                format!("✓ multi/handler up (job {job}) — {payload} on {lhost}:{lport}; /msfsessions when it lands"),
+                Color::Green,
+            )),
+            Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+        }
+    }
+
+    async fn msf_meterpreter(&mut self, spec: &str) {
+        let Some(client) = self.msf.clone() else {
+            self.push(Line::c(
+                "not connected — /msfrpc <host> <port> <user> <pass>",
+                Color::Yellow,
+            ));
+            return;
+        };
+        let mut it = spec.split_whitespace();
+        let sid: i64 = match it.next().and_then(|s| s.parse().ok()) {
+            Some(i) => i,
+            None => {
+                self.push(Line::c("usage: /met <session-id> <command>", Color::Yellow));
+                return;
+            }
+        };
+        let cmd: String = it.collect::<Vec<_>>().join(" ");
+        if !cmd.is_empty() {
+            self.push(Line::c(format!("meterpreter {sid}> {cmd}"), Color::Magenta));
+            if let Err(e) = client.meterpreter_write(sid, &cmd).await {
+                self.push(Line::c(format!("! {e}"), Color::Red));
+                return;
+            }
+        }
+        // Poll a few times for output.
+        let mut out = String::new();
+        for _ in 0..12 {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            match client.meterpreter_read(sid).await {
+                Ok(d) => {
+                    out.push_str(&d);
+                    if !d.is_empty() && out.trim_end().len() > 1 {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    self.push(Line::c(format!("! {e}"), Color::Red));
+                    return;
+                }
+            }
+        }
+        for l in out.lines() {
+            self.push(Line::out(l.to_string(), 0));
         }
     }
 
