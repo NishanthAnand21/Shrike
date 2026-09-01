@@ -115,6 +115,10 @@ pub struct Engagement {
     pub lport: Option<String>,
     #[serde(default)]
     pub wordlists: BTreeMap<String, String>,
+    #[serde(default)]
+    pub scope: super::scope::Scope,
+    #[serde(default)]
+    pub meta: super::scope::Meta,
 }
 
 impl Engagement {

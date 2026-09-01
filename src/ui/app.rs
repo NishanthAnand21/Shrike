@@ -153,6 +153,7 @@ pub struct App {
     pub auto_attach: bool,
     captures: HashMap<SessionId, Capture>,
     sess_text: HashMap<SessionId, String>,
+    scope_allow_override: bool,
 }
 
 pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
@@ -192,6 +193,7 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         auto_attach: false,
         captures: HashMap::new(),
         sess_text: HashMap::new(),
+        scope_allow_override: false,
     };
     app.banner();
     app.refresh_suggestions();
@@ -1121,6 +1123,8 @@ impl App {
             Action::SessUpgrade(spec) => self.session_upgrade(&spec).await,
             Action::Upload(spec) => self.session_upload(&spec).await,
             Action::Download(spec) => self.session_download(&spec).await,
+            Action::ScopeCmd(spec) => self.scope_cmd(&spec),
+            Action::EngagementCmd(spec) => self.engagement_cmd(&spec),
             Action::ViewCmd(name) => {
                 let v = match name.trim().to_ascii_lowercase().as_str() {
                     "console" | "log" => Some(View::Console),
@@ -1181,6 +1185,14 @@ impl App {
             ));
             return;
         }
+
+        // Scope guard: if the tool targets the focused host, enforce the scope policy.
+        if let Some(t) = self.focus.clone() {
+            if !self.scope_allows(&t, tool.name) {
+                return;
+            }
+        }
+
         let host = self
             .focus
             .as_ref()
@@ -1610,6 +1622,147 @@ impl App {
             Color::Green,
         ));
         self.refresh_suggestions();
+    }
+
+    /// Scope check for a target. Returns false (and logs) when the run must be blocked.
+    fn scope_allows(&mut self, target: &str, tool: &str) -> bool {
+        use crate::model::Verdict;
+        if self.eng.scope.is_empty() {
+            return true; // no scope defined -> no guard
+        }
+        match self.eng.scope.check(target) {
+            Verdict::InScope => true,
+            Verdict::Unknown => {
+                self.push(Line::c(
+                    format!("⚠ {target} not in the explicit in-scope list — proceeding (mode: not-excluded)"),
+                    Color::Yellow,
+                ));
+                true
+            }
+            Verdict::OutOfScope => {
+                self.push(Line::c(
+                    format!("⛔ BLOCKED: {target} is OUT OF SCOPE — refusing to run {tool}"),
+                    Color::Red,
+                ));
+                self.push(Line::c(
+                    "   add it with /scope in <ip|cidr>, or /scope allow to permit out-of-scope this session",
+                    Color::DarkGray,
+                ));
+                // Audit the block.
+                let line = format!(
+                    "{}  BLOCKED  target={target} tool={tool}\n",
+                    crate::model::state::now_iso()
+                );
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(self.ws.loot_dir().join("scope-audit.log"))
+                    .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+                self.scope_allow_override
+            }
+        }
+    }
+
+    fn scope_cmd(&mut self, spec: &str) {
+        use crate::model::scope::Entry;
+        let mut it = spec.split_whitespace();
+        let sub = it.next().unwrap_or("");
+        let rest: Vec<&str> = it.collect();
+        match sub {
+            "in" | "add" => {
+                for e in &rest {
+                    self.eng.scope.in_scope.push(Entry::parse(e));
+                }
+                self.push(Line::c(
+                    format!("+ in-scope: {}", rest.join(", ")),
+                    Color::Green,
+                ));
+            }
+            "out" | "exclude" => {
+                for e in &rest {
+                    self.eng.scope.out_scope.push(Entry::parse(e));
+                }
+                self.push(Line::c(
+                    format!("+ out-of-scope: {}", rest.join(", ")),
+                    Color::Yellow,
+                ));
+            }
+            "allow" => {
+                self.scope_allow_override = true;
+                self.push(Line::c(
+                    "scope override ON — out-of-scope targets permitted this session",
+                    Color::Red,
+                ));
+            }
+            "enforce" => {
+                self.scope_allow_override = false;
+                self.push(Line::c(
+                    "scope override OFF — out-of-scope targets blocked",
+                    Color::Cyan,
+                ));
+            }
+            "show" | "" => {
+                let ins = self
+                    .eng
+                    .scope
+                    .in_scope
+                    .iter()
+                    .map(|e| e.label().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let outs = self
+                    .eng
+                    .scope
+                    .out_scope
+                    .iter()
+                    .map(|e| e.label().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let ov = self.scope_allow_override;
+                self.push(Line::c("scope:", Color::Cyan));
+                self.push(Line::plain(format!("  in-scope : {ins}")));
+                self.push(Line::plain(format!("  out-scope: {outs}")));
+                self.push(Line::plain(format!(
+                    "  override : {}",
+                    if ov { "ON" } else { "off" }
+                )));
+            }
+            _ => self.push(Line::c(
+                "usage: /scope in|out|allow|enforce|show <ip|cidr>",
+                Color::Yellow,
+            )),
+        }
+    }
+
+    fn engagement_cmd(&mut self, spec: &str) {
+        if spec.trim().is_empty() {
+            let m = self.eng.meta.clone();
+            self.push(Line::c("engagement:", Color::Cyan));
+            self.push(Line::plain(format!(
+                "  client={} operator={} roe={}",
+                m.client, m.operator, m.roe_ref
+            )));
+            self.push(Line::plain(format!(
+                "  window={}..{} auth={}",
+                m.start_date, m.end_date, m.authorization
+            )));
+            return;
+        }
+        for kv in spec.split_whitespace() {
+            if let Some((k, v)) = kv.split_once('=') {
+                let v = v.replace('_', " ");
+                match k.to_ascii_lowercase().as_str() {
+                    "client" => self.eng.meta.client = v,
+                    "operator" => self.eng.meta.operator = v,
+                    "roe" | "roe_ref" => self.eng.meta.roe_ref = v,
+                    "auth" | "authorization" => self.eng.meta.authorization = v,
+                    "start" => self.eng.meta.start_date = v,
+                    "end" => self.eng.meta.end_date = v,
+                    _ => self.push(Line::c(format!("? unknown field '{k}'"), Color::Yellow)),
+                }
+            }
+        }
+        self.push(Line::c("engagement metadata updated", Color::Cyan));
     }
 
     fn set_var(&mut self, k: &str, v: &str) {

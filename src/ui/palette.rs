@@ -66,6 +66,10 @@ pub enum Action {
     Upload(String),
     /// Download a remote file from a session:  <id> <remote>
     Download(String),
+    /// Manage engagement scope.
+    ScopeCmd(String),
+    /// Set engagement metadata (client=... operator=...).
+    EngagementCmd(String),
     /// Generate a payload: id [lhost] [lport] [+transform]
     Payload(String),
     /// Build an msfvenom command: id [lhost] [lport]
@@ -128,6 +132,8 @@ pub fn parse(line: &str) -> Action {
         "upgrade" | "pty" => SessUpgrade(rest),
         "upload" | "put" => Upload(rest),
         "download" | "get" => Download(rest),
+        "scope" => ScopeCmd(rest),
+        "engagement" | "eng" => EngagementCmd(rest),
         "payload" | "gen" | "rev" => Payload(rest),
         "msf" | "msfvenom" => Msf(rest),
         "payloads" | "listpayloads" => Payloads(rest),

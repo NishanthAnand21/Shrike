@@ -25,6 +25,7 @@ pub fn render(eng: &Engagement) -> String {
         stat_row(eng)
     );
 
+    scope_section(&mut h, eng);
     findings(&mut h, eng);
     attack(&mut h, eng);
     topology(&mut h, eng);
@@ -53,6 +54,44 @@ fn stat_row(eng: &Engagement) -> String {
             )
         })
         .collect()
+}
+
+fn scope_section(h: &mut String, eng: &Engagement) {
+    let m = &eng.meta;
+    let sc = &eng.scope;
+    if !m.is_set() && sc.is_empty() {
+        return;
+    }
+    let _ = write!(
+        h,
+        "<section><h2>Scope &amp; authorization</h2><table><tbody>"
+    );
+    let row = |h: &mut String, k: &str, v: &str| {
+        if !v.is_empty() {
+            let _ = write!(
+                h,
+                r#"<tr><td class="dim">{}</td><td>{}</td></tr>"#,
+                k,
+                esc(v)
+            );
+        }
+    };
+    row(h, "Client", &m.client);
+    row(h, "Operator", &m.operator);
+    row(h, "ROE reference", &m.roe_ref);
+    row(h, "Authorization", &m.authorization);
+    if !m.start_date.is_empty() || !m.end_date.is_empty() {
+        row(h, "Window", &format!("{} .. {}", m.start_date, m.end_date));
+    }
+    let ins: Vec<String> = sc.in_scope.iter().map(|e| e.label().to_string()).collect();
+    let outs: Vec<String> = sc.out_scope.iter().map(|e| e.label().to_string()).collect();
+    if !ins.is_empty() {
+        row(h, "In scope", &ins.join(", "));
+    }
+    if !outs.is_empty() {
+        row(h, "Out of scope", &outs.join(", "));
+    }
+    let _ = write!(h, "</tbody></table></section>");
 }
 
 fn findings(h: &mut String, eng: &Engagement) {
