@@ -68,15 +68,17 @@ pub enum View {
     Findings,
     Creds,
     Web,
+    Loot,
 }
 
 impl View {
-    pub const ALL: [View; 5] = [
+    pub const ALL: [View; 6] = [
         View::Console,
         View::Hosts,
         View::Findings,
         View::Creds,
         View::Web,
+        View::Loot,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -85,6 +87,7 @@ impl View {
             View::Findings => "findings",
             View::Creds => "creds",
             View::Web => "web",
+            View::Loot => "loot",
         }
     }
     pub fn next(self) -> View {
@@ -157,6 +160,7 @@ pub struct App {
     captures: HashMap<SessionId, Capture>,
     sess_text: HashMap<SessionId, String>,
     scope_allow_override: bool,
+    rc_record: Option<(std::path::PathBuf, Vec<String>)>,
     msf: Option<MsfClient>,
     msf_console: Option<String>,
     web_snapshot: Option<webui::Snapshot>,
@@ -204,6 +208,7 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         captures: HashMap::new(),
         sess_text: HashMap::new(),
         scope_allow_override: false,
+        rc_record: None,
         msf: None,
         msf_console: None,
         web_snapshot: None,
@@ -781,7 +786,7 @@ impl App {
             }
         }
         match k.code {
-            F(n) if (1..=5).contains(&n) => {
+            F(n) if (1..=6).contains(&n) => {
                 self.view = View::ALL[(n - 1) as usize];
                 self.table_sel = 0;
             }
@@ -1071,6 +1076,13 @@ impl App {
     }
 
     async fn dispatch(&mut self, line: &str) {
+        // Record dispatched commands into the active resource script (except rc control).
+        if let Some((_, cmds)) = &mut self.rc_record {
+            let t = line.trim();
+            if !t.is_empty() && !t.starts_with("/rc") && !t.starts_with("/quit") {
+                cmds.push(t.to_string());
+            }
+        }
         let action = palette::parse(line);
         match action {
             Action::Quit => self.should_quit = true,
@@ -1157,6 +1169,7 @@ impl App {
                     "findings" | "finding" | "vulns" => Some(View::Findings),
                     "creds" | "credentials" => Some(View::Creds),
                     "web" | "paths" => Some(View::Web),
+                    "loot" => Some(View::Loot),
                     _ => None,
                 };
                 match v {
@@ -2136,7 +2149,35 @@ impl App {
     }
 
     async fn run_rc(&mut self, path: &str) {
-        let content = match std::fs::read_to_string(path.trim()) {
+        let arg = path.trim();
+        // Recording control.
+        if let Some(rest) = arg.strip_prefix("record") {
+            let file = rest.trim();
+            if file.is_empty() {
+                self.push(Line::c("usage: /rc record <file>", Color::Yellow));
+                return;
+            }
+            self.rc_record = Some((std::path::PathBuf::from(file), vec![]));
+            self.push(Line::c(
+                format!("● recording commands → {file} (/rc stop to finish)"),
+                Color::Magenta,
+            ));
+            return;
+        }
+        if arg == "stop" {
+            match self.rc_record.take() {
+                Some((file, cmds)) => match std::fs::write(&file, cmds.join("\n") + "\n") {
+                    Ok(_) => self.push(Line::c(
+                        format!("saved {} command(s) → {}", cmds.len(), file.display()),
+                        Color::Cyan,
+                    )),
+                    Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+                },
+                None => self.push(Line::c("not recording", Color::Yellow)),
+            }
+            return;
+        }
+        let content = match std::fs::read_to_string(arg) {
             Ok(c) => c,
             Err(e) => {
                 self.push(Line::c(format!("! {path}: {e}"), Color::Red));

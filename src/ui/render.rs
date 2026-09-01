@@ -48,6 +48,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         View::Findings => draw_findings_view(f, app, transcript_area),
         View::Creds => draw_creds_view(f, app, transcript_area),
         View::Web => draw_web_view(f, app, transcript_area),
+        View::Loot => draw_loot_view(f, app, transcript_area),
     }
     if let Some(p) = panel_area {
         draw_panel(f, app, p);
@@ -150,9 +151,9 @@ fn draw_hint(f: &mut Frame, app: &App, area: Rect) {
     let hint = if app.menu_active() {
         "↑↓ select · Tab complete · Enter run · Esc dismiss".to_string()
     } else if app.view == View::Hosts {
-        "↑↓ select · Enter focus host · F1-F5 views · / for menu".to_string()
+        "↑↓ select · Enter focus host · F1-F6 views · / for menu".to_string()
     } else if app.view != View::Console {
-        "↑↓ scroll · F1-F5 switch views · / for menu · /help".to_string()
+        "↑↓ scroll · F1-F6 switch views · / for menu · /help".to_string()
     } else if !app.follow {
         "PgUp/PgDn scroll · Ctrl-C cancel · /help".to_string()
     } else {
@@ -398,7 +399,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         ("Tab", "run highlighted suggestion / accept completion"),
         (
             "F1-F5 / Shift-Tab",
-            "switch views: console/hosts/findings/creds/web",
+            "switch views (console/hosts/findings/creds/web/loot)",
         ),
         ("↑ ↓", "move selection (menu or suggestions)"),
         ("/", "open the command menu"),
@@ -659,6 +660,45 @@ fn draw_web_view(f: &mut Frame, app: &App, area: Rect) {
         )));
     }
     view_frame(app, area, f, "web content", rows);
+}
+
+fn draw_loot_view(f: &mut Frame, app: &App, area: Rect) {
+    let mut rows = vec![];
+    for (i, l) in app.eng.loot.iter().enumerate() {
+        let active = i == app.table_sel.min(app.eng.loot.len().saturating_sub(1));
+        let sz = l.size.map(|n| format!("{n}b")).unwrap_or_default();
+        rows.push(TLine::from(vec![
+            Span::styled(
+                format!(" {} {:<9}", l.kind.icon(), l.kind.label()),
+                sel_style(active),
+            ),
+            Span::styled(
+                format!("{:<40}", truncate(&l.path, 40)),
+                Style::default().fg(if active { Color::Black } else { Color::White }),
+            ),
+            Span::styled(
+                format!("{:<8}", sz),
+                Style::default().fg(if active { Color::Black } else { FAINT }),
+            ),
+            Span::styled(
+                truncate(&l.source, 20),
+                Style::default().fg(if active { Color::Black } else { MUTED }),
+            ),
+        ]));
+    }
+    if rows.is_empty() {
+        rows.push(TLine::from(Span::styled(
+            "  no loot — /download, /vault or /payload populate it",
+            Style::default().fg(FAINT),
+        )));
+    }
+    view_frame(
+        app,
+        area,
+        f,
+        &format!("loot ({})", app.eng.loot.len()),
+        rows,
+    );
 }
 
 fn truncate(s: &str, n: usize) -> String {
