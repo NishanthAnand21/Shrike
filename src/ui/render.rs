@@ -398,7 +398,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
     for (k, v) in [
         ("Tab", "run highlighted suggestion / accept completion"),
         (
-            "F1-F5 / Shift-Tab",
+            "F1-F6 / Shift-Tab",
             "switch views (console/hosts/findings/creds/web/loot)",
         ),
         ("↑ ↓", "move selection (menu or suggestions)"),

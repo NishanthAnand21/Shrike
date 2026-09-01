@@ -283,6 +283,18 @@ pub static COMMANDS: &[Cmd] = &[
         aliases: &[],
     },
     Cmd {
+        name: "loot",
+        args: "[filter]",
+        desc: "list captured loot (files/creds/payloads)",
+        aliases: &[],
+    },
+    Cmd {
+        name: "workspace",
+        args: "list|new|use <name>",
+        desc: "manage / switch engagements",
+        aliases: &["ws", "engagements"],
+    },
+    Cmd {
         name: "payload",
         args: "<id> [lhost] [lport] [+xform] [--listen]",
         desc: "generate a payload (+ listener)",
@@ -405,7 +417,7 @@ pub static COMMANDS: &[Cmd] = &[
     Cmd {
         name: "view",
         args: "hosts|findings|creds|web|console",
-        desc: "switch dashboard view (or F1-F5)",
+        desc: "switch dashboard view (or F1-F6)",
         aliases: &["tab", "v"],
     },
     Cmd {

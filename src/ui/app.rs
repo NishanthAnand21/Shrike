@@ -1178,7 +1178,7 @@ impl App {
                         self.table_sel = 0;
                     }
                     None => self.push(Line::c(
-                        "views: console hosts findings creds web  (or F1-F5)",
+                        "views: console hosts findings creds web loot  (or F1-F6)",
                         Color::Yellow,
                     )),
                 }
