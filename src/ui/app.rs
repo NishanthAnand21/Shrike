@@ -2,6 +2,7 @@
 
 use super::palette::{self, Action};
 use crate::catalog::{self, Ctx};
+use crate::engine::msf::MsfClient;
 use crate::engine::postex::{self, Os as PxOs};
 use crate::engine::session::{self, Registry, SessionEvent, SessionId};
 use crate::engine::webui;
@@ -156,6 +157,8 @@ pub struct App {
     captures: HashMap<SessionId, Capture>,
     sess_text: HashMap<SessionId, String>,
     scope_allow_override: bool,
+    msf: Option<MsfClient>,
+    msf_console: Option<String>,
     web_snapshot: Option<webui::Snapshot>,
     web_cancel: Option<CancellationToken>,
     status_rx: mpsc::UnboundedReceiver<String>,
@@ -201,6 +204,8 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         captures: HashMap::new(),
         sess_text: HashMap::new(),
         scope_allow_override: false,
+        msf: None,
+        msf_console: None,
         web_snapshot: None,
         web_cancel: None,
         status_rx,
@@ -1170,6 +1175,9 @@ impl App {
                 format!("? unknown command /{c} — try /help"),
                 Color::Yellow,
             )),
+            Action::MsfRpc(spec) => self.msf_connect(&spec).await,
+            Action::MsfConsole(cmd) => self.msf_console_run(&cmd).await,
+            Action::MsfSessions => self.msf_sessions().await,
             Action::Web(spec) => self.web_cmd(&spec),
         }
         let _ = self.ws.save(&self.eng);
@@ -1181,6 +1189,118 @@ impl App {
             if let Ok(mut g) = snap.lock() {
                 *g = webui::render_snapshot(&self.eng);
             }
+        }
+    }
+
+    async fn msf_connect(&mut self, spec: &str) {
+        let p: Vec<&str> = spec.split_whitespace().collect();
+        if p.len() < 4 {
+            self.push(Line::c(
+                "usage: /msfrpc <host> <port> <user> <pass>   (run: msfrpcd -U u -P p -p 55552)",
+                Color::Yellow,
+            ));
+            return;
+        }
+        let (host, user, pass) = (p[0].to_string(), p[2].to_string(), p[3].to_string());
+        let port: u16 = match p[1].parse() {
+            Ok(v) => v,
+            Err(_) => {
+                self.push(Line::c("port must be a number", Color::Yellow));
+                return;
+            }
+        };
+        self.push(Line::c(
+            format!("connecting to msfrpcd {host}:{port} …"),
+            Color::Cyan,
+        ));
+        match MsfClient::login(&host, port, &user, &pass).await {
+            Ok(client) => {
+                let ver = client
+                    .version()
+                    .await
+                    .unwrap_or_else(|_| "Metasploit".into());
+                match client.console_create().await {
+                    Ok(cid) => {
+                        self.push(Line::c(
+                            format!("✓ connected — {ver} (console {cid})"),
+                            Color::Green,
+                        ));
+                        self.push(Line::c(
+                            "  drive it with /msfc <command>  ·  /msfsessions to list",
+                            Color::DarkGray,
+                        ));
+                        self.msf = Some(client);
+                        self.msf_console = Some(cid);
+                    }
+                    Err(e) => self.push(Line::c(
+                        format!("✓ connected but console failed: {e}"),
+                        Color::Yellow,
+                    )),
+                }
+            }
+            Err(e) => self.push(Line::c(format!("✗ msfrpcd: {e}"), Color::Red)),
+        }
+    }
+
+    async fn msf_console_run(&mut self, cmd: &str) {
+        let (Some(client), Some(cid)) = (self.msf.clone(), self.msf_console.clone()) else {
+            self.push(Line::c(
+                "not connected — /msfrpc <host> <port> <user> <pass>",
+                Color::Yellow,
+            ));
+            return;
+        };
+        if !cmd.trim().is_empty() {
+            self.push(Line::c(format!("msf> {cmd}"), Color::Magenta));
+            if let Err(e) = client.console_write(&cid, cmd).await {
+                self.push(Line::c(format!("! {e}"), Color::Red));
+                return;
+            }
+        }
+        // Read until the console is no longer busy (bounded).
+        let mut lines: Vec<String> = vec![];
+        for _ in 0..40 {
+            match client.console_read(&cid).await {
+                Ok((data, busy)) => {
+                    for l in data.lines() {
+                        lines.push(l.to_string());
+                    }
+                    if !busy && !data.is_empty() {
+                        break;
+                    }
+                    if !busy && data.is_empty() && !lines.is_empty() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+                Err(e) => {
+                    self.push(Line::c(format!("! {e}"), Color::Red));
+                    break;
+                }
+            }
+        }
+        for l in lines {
+            self.push(Line::out(l, 0));
+        }
+    }
+
+    async fn msf_sessions(&mut self) {
+        let Some(client) = self.msf.clone() else {
+            self.push(Line::c(
+                "not connected — /msfrpc <host> <port> <user> <pass>",
+                Color::Yellow,
+            ));
+            return;
+        };
+        match client.sessions().await {
+            Ok(list) if !list.is_empty() => {
+                self.push(Line::c("MSF sessions:", Color::Cyan));
+                for l in list {
+                    self.push(Line::plain(format!("  {l}")));
+                }
+            }
+            Ok(_) => self.push(Line::plain("no active MSF sessions")),
+            Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
         }
     }
 

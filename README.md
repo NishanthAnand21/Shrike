@@ -141,6 +141,7 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/scope in\|out <cidr>` · `/engagement` | scope guard + engagement metadata |
 | `/vault` · `/module <name> <id>` · `/search` | cred export · session post-modules · global search |
 | `/web [port]` | read-only web dashboard in the browser |
+| `/msfrpc <host> <port> <u> <p>` · `/msfc <cmd>` | drive a Metasploit RPC daemon |
 | `/payload <id> … --listen` | generate a reverse shell **and** start its listener |
 | `/listen <port> [--attach]` | catch reverse shells (--attach = auto-enter the session) |
 | `/sessions` · `/interact <id>` | list caught shells / attach (Ctrl-] detaches) |

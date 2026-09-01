@@ -2,6 +2,7 @@
 
 pub mod exec;
 pub mod modules;
+pub mod msf;
 pub mod postex;
 pub mod session;
 pub mod webui;

@@ -30,6 +30,7 @@ which = "6"
 textwrap = "0.16"
 base64 = "0.22"
 portable-pty = "0.8"
+rmpv = "1"
 
 [profile.release]
 opt-level = 3
