@@ -9,7 +9,7 @@
 📖 [Install](docs/INSTALL.md) · [Usage](docs/USAGE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 <p align="center">
-  <img src="docs/images/01-overview.png" alt="shrike — context-aware next-step suggestions" width="100%">
+  <img src="docs/images/01-overview.png" alt="shrike — state-aware attack-chain guidance" width="100%">
 </p>
 
 
@@ -47,6 +47,17 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
   feroxbuster is parsed into findings and discovered paths; `/finding` records your
   own. Export a self-contained **HTML report** (`/html`) or the phase-grouped
   `notes.md`.
+- **Session post-exploitation.** Once a shell lands, run OS-aware recon (`/enum`),
+  named post-modules (`/module`), a PTY upgrade (`/upgrade`), and move files over the
+  socket (`/upload` / `/download`) — output is auto-harvested for credentials.
+- **State-aware guidance.** `/next` reads the engagement and recommends the next
+  concrete moves with a rationale and a MITRE ATT&CK tag; findings and commands are
+  ATT&CK-tagged in the report.
+- **Stays in scope.** `/scope in|out` plus a pre-flight guard that blocks tools aimed
+  at out-of-scope targets (audited) — a safety net MSF and Viper don't have.
+- **Multi-engagement + evidence.** Switch engagements with `/workspace`, browse a Loot
+  view (F6), export the credential vault (`/vault` → hashcat/john/csv), watch it all in
+  a read-only browser dashboard (`/web`), and drive a Metasploit `msfrpcd` (`/msfrpc`).
 - **Runs many hosts at once.** A bounded async worker pool streams each job's output
   back to the UI live, with per-job timeouts and Ctrl-C cancellation.
 - **Never loses work.** State is serialised to disk after every command; a session
@@ -85,10 +96,38 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 <tr>
 <td colspan="2">
 <img src="docs/images/10-listener.png" alt="Reverse-shell listener"><br>
-<sub><b>Managed reverse-shell listener</b> (<code>/listen</code>) — catches shells from generated payloads as tracked sessions; stream output, <code>/send</code> commands, or <code>/interact</code> for a full raw-mode terminal (Ctrl-] detaches).</sub>
+<sub><b>Managed reverse-shell listener</b> (<code>/listen</code>) — catches shells from generated payloads as tracked sessions; stream output, <code>/send</code> commands, <code>/enum</code>/<code>/upload</code>/<code>/download</code> post-ex, or <code>/interact</code> for a full raw-mode terminal (Ctrl-] detaches).</sub>
+</td>
+</tr>
+<tr>
+<td colspan="2">
+<img src="docs/images/11-view-loot.png" alt="Loot & evidence view"><br>
+<sub><b>Loot &amp; evidence</b> (F6) — downloads, credential-vault exports and scan artifacts tracked automatically; one of six switchable dashboard views (hosts / findings / creds / web / loot).</sub>
 </td>
 </tr>
 </table>
+
+## How it compares
+
+shrike is a single self-contained Rust **terminal** framework — not a web app, not an
+agent/implant, and it doesn't reimplement Metasploit. It's the orchestration layer that
+ties the tools you already have into one coherent, scope-guarded, well-documented workflow.
+
+| | shrike | Metasploit | Viper |
+|---|---|---|---|
+| Form factor | single static binary, TUI | Ruby + DB | web GUI + DB + Docker |
+| Backend | your existing Kali tools | built-in modules | Metasploit |
+| Recon → exploit orchestration | ✅ 103-tool catalog + suggestions | partial | partial |
+| State-aware next-step guidance | ✅ `/next` + MITRE | ❌ | ❌ |
+| Engagement scope guard | ✅ blocks out-of-scope | ❌ | ❌ |
+| Reverse-shell listener + post-ex | ✅ built-in | ✅ | ✅ (meterpreter) |
+| Credential vault + loot + report | ✅ | ✅ | ✅ |
+| Metasploit integration | ✅ via `msfrpcd` | — | ✅ |
+| Custom agents / implants | ❌ (by design) | ✅ | ✅ |
+
+Use shrike when you want MSF/Viper's *workflow* — sessions, loot, modules, a report — in
+one fast local binary that drives your own toolchain and keeps you inside the rules of
+engagement. Reach for Metasploit/Viper when you need their exploit modules or agent implants.
 
 ## Documentation
 
