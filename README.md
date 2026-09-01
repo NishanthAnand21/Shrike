@@ -139,6 +139,8 @@ top suggestion). The dashboard (next-steps + host context) is opt-in — `Ctrl-G
 | `/enum <id>` · `/upgrade <id>` | recon through a shell / send a PTY upgrade |
 | `/upload <id> <f>` · `/download <id> <f>` | move files over a caught shell |
 | `/scope in\|out <cidr>` · `/engagement` | scope guard + engagement metadata |
+| `/vault` · `/module <name> <id>` · `/search` | cred export · session post-modules · global search |
+| `/web [port]` | read-only web dashboard in the browser |
 | `/payload <id> … --listen` | generate a reverse shell **and** start its listener |
 | `/listen <port> [--attach]` | catch reverse shells (--attach = auto-enter the session) |
 | `/sessions` · `/interact <id>` | list caught shells / attach (Ctrl-] detaches) |

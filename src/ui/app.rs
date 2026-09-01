@@ -4,11 +4,13 @@ use super::palette::{self, Action};
 use crate::catalog::{self, Ctx};
 use crate::engine::postex::{self, Os as PxOs};
 use crate::engine::session::{self, Registry, SessionEvent, SessionId};
+use crate::engine::webui;
 use crate::engine::{Job, JobEvent, JobStatus, Runner, Workspace};
 use crate::model::state::{now_iso, Engagement, Record};
 use crate::model::{Credential, Phase, SecretKind};
 use crate::parse;
 use crate::payload::{self, transform};
+use tokio_util::sync::CancellationToken;
 
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
@@ -154,11 +156,16 @@ pub struct App {
     captures: HashMap<SessionId, Capture>,
     sess_text: HashMap<SessionId, String>,
     scope_allow_override: bool,
+    web_snapshot: Option<webui::Snapshot>,
+    web_cancel: Option<CancellationToken>,
+    status_rx: mpsc::UnboundedReceiver<String>,
+    status_tx: mpsc::UnboundedSender<String>,
 }
 
 pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
     let (tx, rx) = mpsc::unbounded_channel();
     let (sess_tx, sess_rx) = mpsc::unbounded_channel();
+    let (status_tx, status_rx) = mpsc::unbounded_channel::<String>();
     let runner = Runner::new(parallel, tx);
     let mut app = App {
         ws,
@@ -194,6 +201,10 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
         captures: HashMap::new(),
         sess_text: HashMap::new(),
         scope_allow_override: false,
+        web_snapshot: None,
+        web_cancel: None,
+        status_rx,
+        status_tx,
     };
     app.banner();
     app.refresh_suggestions();
@@ -241,6 +252,7 @@ impl App {
                     }
                     Some(job_ev) = self.rx.recv() => self.on_job_event(job_ev),
                     Some(se) = self.sess_rx.recv() => self.on_session_event(se).await,
+                    Some(msg) = self.status_rx.recv() => self.push(Line::c(msg, Color::Cyan)),
                 }
             }
             drop(events);
@@ -928,6 +940,7 @@ impl App {
         let _ = self.ws.save(&self.eng);
         let _ = self.ws.export_notes(&self.eng);
         self.refresh_suggestions();
+        self.refresh_web();
     }
 
     /// Feed a finished job's output back into engagement state.
@@ -1157,8 +1170,46 @@ impl App {
                 format!("? unknown command /{c} — try /help"),
                 Color::Yellow,
             )),
+            Action::Web(spec) => self.web_cmd(&spec),
         }
         let _ = self.ws.save(&self.eng);
+        self.refresh_web();
+    }
+
+    fn refresh_web(&mut self) {
+        if let Some(snap) = &self.web_snapshot {
+            if let Ok(mut g) = snap.lock() {
+                *g = webui::render_snapshot(&self.eng);
+            }
+        }
+    }
+
+    fn web_cmd(&mut self, spec: &str) {
+        let spec = spec.trim();
+        if spec == "stop" || spec == "off" {
+            if let Some(c) = self.web_cancel.take() {
+                c.cancel();
+                self.web_snapshot = None;
+                self.push(Line::c("web dashboard stopped", Color::Yellow));
+            } else {
+                self.push(Line::c("no dashboard running", Color::Yellow));
+            }
+            return;
+        }
+        if self.web_cancel.is_some() {
+            self.push(Line::c(
+                "dashboard already running — /web stop first",
+                Color::Yellow,
+            ));
+            return;
+        }
+        let port: u16 = spec.parse().unwrap_or(8899);
+        let snap: webui::Snapshot =
+            std::sync::Arc::new(std::sync::Mutex::new(webui::render_snapshot(&self.eng)));
+        let cancel = CancellationToken::new();
+        webui::serve(port, snap.clone(), cancel.clone(), self.status_tx.clone());
+        self.web_snapshot = Some(snap);
+        self.web_cancel = Some(cancel);
     }
 
     async fn run_selected(&mut self) {

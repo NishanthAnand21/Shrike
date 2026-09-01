@@ -80,6 +80,8 @@ pub enum Action {
     Search(String),
     /// Replay commands from a resource file.
     Rc(String),
+    /// Start/stop the read-only web dashboard.
+    Web(String),
     /// Generate a payload: id [lhost] [lport] [+transform]
     Payload(String),
     /// Build an msfvenom command: id [lhost] [lport]
@@ -149,6 +151,7 @@ pub fn parse(line: &str) -> Action {
         "modules" => Modules,
         "search" | "grep" => Search(rest),
         "rc" | "resource" => Rc(rest),
+        "web" | "dashboard" => Web(rest),
         "payload" | "gen" | "rev" => Payload(rest),
         "msf" | "msfvenom" => Msf(rest),
         "payloads" | "listpayloads" => Payloads(rest),
