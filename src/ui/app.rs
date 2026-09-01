@@ -165,6 +165,8 @@ pub struct App {
     msf_console: Option<String>,
     web_snapshot: Option<webui::Snapshot>,
     web_cancel: Option<CancellationToken>,
+    web_cmd_rx: mpsc::UnboundedReceiver<String>,
+    web_cmd_tx: mpsc::UnboundedSender<String>,
     status_rx: mpsc::UnboundedReceiver<String>,
     status_tx: mpsc::UnboundedSender<String>,
 }
@@ -178,6 +180,7 @@ pub async fn run(
     let (tx, rx) = mpsc::unbounded_channel();
     let (sess_tx, sess_rx) = mpsc::unbounded_channel();
     let (status_tx, status_rx) = mpsc::unbounded_channel::<String>();
+    let (web_cmd_tx, web_cmd_rx) = mpsc::unbounded_channel::<String>();
     let runner = Runner::new(parallel, tx);
     let mut app = App {
         ws,
@@ -218,6 +221,8 @@ pub async fn run(
         msf_console: None,
         web_snapshot: None,
         web_cancel: None,
+        web_cmd_rx,
+        web_cmd_tx,
         status_rx,
         status_tx,
     };
@@ -271,6 +276,10 @@ impl App {
                     Some(job_ev) = self.rx.recv() => self.on_job_event(job_ev),
                     Some(se) = self.sess_rx.recv() => self.on_session_event(se).await,
                     Some(msg) = self.status_rx.recv() => self.push(Line::c(msg, Color::Cyan)),
+                    Some(cmd) = self.web_cmd_rx.recv() => {
+                        self.push(Line::c(format!("web❯ {cmd}"), Color::Blue));
+                        Box::pin(self.dispatch(&cmd)).await;
+                    }
                 }
             }
             drop(events);
@@ -1370,7 +1379,22 @@ impl App {
         let snap: webui::Snapshot =
             std::sync::Arc::new(std::sync::Mutex::new(webui::render_snapshot(&self.eng)));
         let cancel = CancellationToken::new();
-        webui::serve(port, snap.clone(), cancel.clone(), self.status_tx.clone());
+        let token = format!(
+            "{:08x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0)
+                .wrapping_mul(2654435761)
+        );
+        webui::serve(
+            port,
+            token,
+            snap.clone(),
+            self.web_cmd_tx.clone(),
+            cancel.clone(),
+            self.status_tx.clone(),
+        );
         self.web_snapshot = Some(snap);
         self.web_cancel = Some(cancel);
     }
