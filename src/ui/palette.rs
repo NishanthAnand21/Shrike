@@ -72,6 +72,10 @@ pub enum Action {
     EngagementCmd(String),
     /// Export the credential vault (hashcat/john/csv/userpass).
     Vault,
+    /// List captured loot.
+    Loot(String),
+    /// Manage engagements (list/new/use).
+    Workspace(String),
     /// Run a named session post-module:  <module> <session-id>
     Module(String),
     /// List session post-modules.
@@ -121,7 +125,7 @@ pub fn parse(line: &str) -> Action {
         "target" | "add" => AddTarget(rest),
         "focus" | "host" | "use" => Focus(rest),
         "cred" | "creds" => AddCred(rest),
-        "harvest" | "loot" => Harvest(rest),
+        "harvest" => Harvest(rest),
         "set" => {
             let (k, v) = rest.split_once([' ', '=']).unwrap_or((rest.as_str(), ""));
             Set(k.trim().to_string(), v.trim().to_string())
@@ -153,6 +157,8 @@ pub fn parse(line: &str) -> Action {
         "scope" => ScopeCmd(rest),
         "engagement" | "eng" => EngagementCmd(rest),
         "vault" => Vault,
+        "loot" => Loot(rest),
+        "workspace" | "ws" | "engagements" => Workspace(rest),
         "module" | "post" => Module(rest),
         "modules" => Modules,
         "search" | "grep" => Search(rest),

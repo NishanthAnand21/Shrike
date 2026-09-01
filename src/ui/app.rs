@@ -1144,6 +1144,8 @@ impl App {
             Action::ScopeCmd(spec) => self.scope_cmd(&spec),
             Action::EngagementCmd(spec) => self.engagement_cmd(&spec),
             Action::Vault => self.export_vault(),
+            Action::Loot(filter) => self.list_loot(&filter),
+            Action::Workspace(spec) => self.workspace_cmd(&spec).await,
             Action::Module(spec) => self.run_module(&spec).await,
             Action::Modules => self.list_modules(),
             Action::Search(term) => self.search(&term),
@@ -1839,6 +1841,127 @@ impl App {
         }
     }
 
+    async fn workspace_cmd(&mut self, spec: &str) {
+        let mut it = spec.split_whitespace();
+        let sub = it.next().unwrap_or("list");
+        let base = self
+            .ws
+            .root
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        match sub {
+            "list" | "ls" | "" => {
+                let cur = self
+                    .ws
+                    .root
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let mut names: Vec<String> = vec![];
+                if let Ok(rd) = std::fs::read_dir(&base) {
+                    for e in rd.flatten() {
+                        if e.path().join("engagement.json").exists() {
+                            names.push(e.file_name().to_string_lossy().into_owned());
+                        }
+                    }
+                }
+                names.sort();
+                self.push(Line::c("engagements:", Color::Cyan));
+                for n in names {
+                    let mark = if n == cur { " ← current" } else { "" };
+                    self.push(Line::plain(format!("  {n}{mark}")));
+                }
+            }
+            "new" | "use" | "open" | "switch" => {
+                let Some(name) = it.next() else {
+                    self.push(Line::c("usage: /workspace new|use <name>", Color::Yellow));
+                    return;
+                };
+                if self.runner.active().await > 0 {
+                    self.push(Line::c(
+                        "jobs still running — cancel them before switching workspaces",
+                        Color::Yellow,
+                    ));
+                    return;
+                }
+                // Save current, then open the target under the same base dir.
+                let _ = self.ws.save(&self.eng);
+                let _ = self.ws.export_notes(&self.eng);
+                let target = base.join(name);
+                match crate::engine::Workspace::open_or_create(&target, name) {
+                    Ok((ws, eng)) => {
+                        self.ws = ws;
+                        self.eng = eng;
+                        self.focus = None;
+                        self.view = View::Console;
+                        self.eng.recompute_segments();
+                        self.refresh_suggestions();
+                        self.refresh_web();
+                        self.push(Line::c(
+                            format!("→ switched to engagement '{name}'"),
+                            Color::Green,
+                        ));
+                        self.push(Line::c(
+                            format!("  {}", self.ws.root.display()),
+                            Color::DarkGray,
+                        ));
+                    }
+                    Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
+                }
+            }
+            _ => self.push(Line::c(
+                "usage: /workspace list|new|use <name>",
+                Color::Yellow,
+            )),
+        }
+    }
+
+    fn list_loot(&mut self, filter: &str) {
+        let filt = filter.trim().to_ascii_lowercase();
+        let items: Vec<String> = self
+            .eng
+            .loot
+            .iter()
+            .filter(|l| {
+                filt.is_empty()
+                    || l.kind.label().contains(&filt)
+                    || l.name.to_ascii_lowercase().contains(&filt)
+            })
+            .map(|l| {
+                let sz = l.size.map(|n| format!(" {n}b")).unwrap_or_default();
+                let src = if l.source.is_empty() {
+                    String::new()
+                } else {
+                    format!("  ({})", l.source)
+                };
+                format!(
+                    "  {} {:<10} {}{}{}",
+                    l.kind.icon(),
+                    l.kind.label(),
+                    l.path,
+                    sz,
+                    src
+                )
+            })
+            .collect();
+        if items.is_empty() {
+            self.push(Line::c(
+                "no loot yet — /download, /vault, /payload populate it",
+                Color::Yellow,
+            ));
+        } else {
+            self.push(Line::c(
+                format!("loot ({} items):", items.len()),
+                Color::Cyan,
+            ));
+            for i in items {
+                self.push(Line::plain(i));
+            }
+        }
+    }
+
     fn export_vault(&mut self) {
         if self.eng.creds.is_empty() {
             self.push(Line::c("no credentials to export", Color::Yellow));
@@ -1850,8 +1973,24 @@ impl App {
                     format!("exported credential vault ({} files):", files.len()),
                     Color::Cyan,
                 ));
-                for p in files {
-                    self.push(Line::plain(format!("  {}", self.ws.rel(&p))));
+                let items: Vec<(String, String)> = files
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("export")
+                                .to_string(),
+                            self.ws.rel(p),
+                        )
+                    })
+                    .collect();
+                for (name, rel) in items {
+                    self.push(Line::plain(format!("  {rel}")));
+                    self.eng.add_loot(
+                        crate::model::LootItem::new(crate::model::LootKind::Creds, name, rel)
+                            .from("vault"),
+                    );
                 }
             }
             Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
@@ -2366,6 +2505,11 @@ impl App {
         let fname = format!("{}.{}", pl.id, pl.lang.ext());
         let path = self.ws.loot_dir().join(&fname);
         let _ = std::fs::write(&path, &body);
+        let rel = self.ws.rel(&path);
+        self.eng.add_loot(
+            crate::model::LootItem::new(crate::model::LootKind::Payload, fname.clone(), rel)
+                .from(pl.id.to_string()),
+        );
         self.push(Line::c(format!("  saved → loot/{fname}"), Color::Cyan));
         self.eng.note(
             Phase::PostExploit,

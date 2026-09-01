@@ -2,6 +2,7 @@
 
 use super::creds::{Credential, SecretKind};
 use super::finding::Finding;
+use super::loot::LootItem;
 use super::phase::Phase;
 use super::target::{Host, Reach, Scope, Segment};
 use serde::{Deserialize, Serialize};
@@ -93,6 +94,8 @@ pub struct Engagement {
     pub domain: DomainInfo,
     #[serde(default)]
     pub findings: Vec<Finding>,
+    #[serde(default)]
+    pub loot: Vec<super::loot::LootItem>,
     /// Discovered web paths, keyed by host:port base URL -> list of paths.
     #[serde(default)]
     pub web_paths: BTreeMap<String, Vec<WebPath>>,
@@ -263,6 +266,12 @@ impl Engagement {
 
     pub fn findings_by_sev(&self, sev: super::finding::Severity) -> usize {
         self.findings.iter().filter(|f| f.severity == sev).count()
+    }
+
+    pub fn add_loot(&mut self, item: LootItem) {
+        if !self.loot.iter().any(|l| l.path == item.path) {
+            self.loot.push(item);
+        }
     }
 
     pub fn push_record(&mut self, mut r: Record) -> u64 {

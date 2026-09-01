@@ -31,6 +31,7 @@ pub fn render(eng: &Engagement) -> String {
     topology(&mut h, eng);
     creds(&mut h, eng);
     web(&mut h, eng);
+    loot(&mut h, eng);
     commands(&mut h, eng);
 
     let _ = write!(h, "</main></body></html>");
@@ -261,6 +262,25 @@ fn web(h: &mut String, eng: &Engagement) {
         let _ = write!(h, "</ul>");
     }
     let _ = write!(h, "</section>");
+}
+
+fn loot(h: &mut String, eng: &Engagement) {
+    if eng.loot.is_empty() {
+        return;
+    }
+    let _ = write!(h, "<section><h2>Loot &amp; evidence</h2><table><thead><tr><th>Kind</th><th>Name</th><th>Path</th><th>Source</th></tr></thead><tbody>");
+    for l in &eng.loot {
+        let _ = write!(
+            h,
+            r#"<tr><td>{} {}</td><td>{}</td><td class="mono dim">{}</td><td class="dim">{}</td></tr>"#,
+            l.kind.icon(),
+            l.kind.label(),
+            esc(&l.name),
+            esc(&l.path),
+            esc(&l.source)
+        );
+    }
+    let _ = write!(h, "</tbody></table></section>");
 }
 
 fn commands(h: &mut String, eng: &Engagement) {
