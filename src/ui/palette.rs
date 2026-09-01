@@ -74,6 +74,8 @@ pub enum Action {
     Vault,
     /// List captured loot.
     Loot(String),
+    /// Run a read-only SQL query against the engagement DB.
+    Sql(String),
     /// Manage engagements (list/new/use).
     Workspace(String),
     /// Run a named session post-module:  <module> <session-id>
@@ -158,6 +160,7 @@ pub fn parse(line: &str) -> Action {
         "engagement" | "eng" => EngagementCmd(rest),
         "vault" => Vault,
         "loot" => Loot(rest),
+        "sql" | "db" => Sql(rest),
         "workspace" | "ws" | "engagements" => Workspace(rest),
         "module" | "post" => Module(rest),
         "modules" => Modules,
@@ -287,6 +290,12 @@ pub static COMMANDS: &[Cmd] = &[
         args: "[filter]",
         desc: "list captured loot (files/creds/payloads)",
         aliases: &[],
+    },
+    Cmd {
+        name: "sql",
+        args: "<SELECT …>",
+        desc: "query the engagement SQLite database",
+        aliases: &["db"],
     },
     Cmd {
         name: "workspace",

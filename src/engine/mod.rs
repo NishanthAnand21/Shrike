@@ -1,5 +1,6 @@
 //! Execution engine: workspace persistence + async job runner.
 
+pub mod db;
 pub mod exec;
 pub mod modules;
 pub mod msf;

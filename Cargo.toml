@@ -31,6 +31,7 @@ textwrap = "0.16"
 base64 = "0.22"
 portable-pty = "0.8"
 rmpv = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
 opt-level = 3

@@ -986,6 +986,7 @@ impl App {
 
         let _ = self.ws.save(&self.eng);
         let _ = self.ws.export_notes(&self.eng);
+        let _ = crate::engine::db::sync(&self.eng, &self.ws.root);
         self.refresh_suggestions();
         self.refresh_web();
     }
@@ -1194,6 +1195,7 @@ impl App {
             Action::EngagementCmd(spec) => self.engagement_cmd(&spec),
             Action::Vault => self.export_vault(),
             Action::Loot(filter) => self.list_loot(&filter),
+            Action::Sql(q) => self.run_sql(&q),
             Action::Workspace(spec) => self.workspace_cmd(&spec).await,
             Action::Module(spec) => self.run_module(&spec).await,
             Action::Modules => self.list_modules(),
@@ -1233,6 +1235,7 @@ impl App {
             Action::Web(spec) => self.web_cmd(&spec),
         }
         let _ = self.ws.save(&self.eng);
+        let _ = crate::engine::db::sync(&self.eng, &self.ws.root);
         self.refresh_web();
     }
 
@@ -1980,6 +1983,44 @@ impl App {
                 "usage: /workspace list|new|use <name>",
                 Color::Yellow,
             )),
+        }
+    }
+
+    fn run_sql(&mut self, sql: &str) {
+        let sql = sql.trim();
+        if sql.is_empty() {
+            self.push(Line::c("usage: /sql <SELECT …>   (tables: hosts, services, credentials, findings, loot, records)", Color::Yellow));
+            return;
+        }
+        let low = sql.to_ascii_lowercase();
+        if !low.trim_start().starts_with("select") {
+            self.push(Line::c(
+                "only read-only SELECT queries are allowed",
+                Color::Yellow,
+            ));
+            return;
+        }
+        let _ = crate::engine::db::sync(&self.eng, &self.ws.root);
+        match crate::engine::db::query(&self.ws.root, sql) {
+            Ok(rows) if rows.len() > 1 => {
+                for (i, r) in rows.iter().enumerate().take(60) {
+                    let line = r
+                        .iter()
+                        .map(|c| format!("{c:<18}").chars().take(20).collect::<String>())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    self.push(Line::c(
+                        format!("  {line}"),
+                        if i == 0 { Color::Cyan } else { Color::White },
+                    ));
+                }
+                self.push(Line::c(
+                    format!("  ({} row(s))", rows.len() - 1),
+                    Color::DarkGray,
+                ));
+            }
+            Ok(_) => self.push(Line::plain("  (no rows)")),
+            Err(e) => self.push(Line::c(format!("! {e}"), Color::Red)),
         }
     }
 
