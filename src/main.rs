@@ -37,6 +37,9 @@ struct Cli {
     /// Non-interactive: print the enumeration plan and exit.
     #[arg(long)]
     plan: bool,
+    /// Run a resource script (one command per line) on startup.
+    #[arg(long)]
+    rc: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -70,5 +73,5 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    ui::app::run(ws, eng, cli.parallel).await
+    ui::app::run(ws, eng, cli.parallel, cli.rc).await
 }

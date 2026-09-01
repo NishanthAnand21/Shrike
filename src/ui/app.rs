@@ -169,7 +169,12 @@ pub struct App {
     status_tx: mpsc::UnboundedSender<String>,
 }
 
-pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> {
+pub async fn run(
+    ws: Workspace,
+    eng: Engagement,
+    parallel: usize,
+    startup_rc: Option<std::path::PathBuf>,
+) -> Result<()> {
     let (tx, rx) = mpsc::unbounded_channel();
     let (sess_tx, sess_rx) = mpsc::unbounded_channel();
     let (status_tx, status_rx) = mpsc::unbounded_channel::<String>();
@@ -218,6 +223,9 @@ pub async fn run(ws: Workspace, eng: Engagement, parallel: usize) -> Result<()> 
     };
     app.banner();
     app.refresh_suggestions();
+    if let Some(rc) = startup_rc {
+        app.run_rc(&rc.to_string_lossy()).await;
+    }
 
     let mut term = ratatui::init();
     let res = app.event_loop(&mut term).await;
@@ -946,6 +954,26 @@ impl App {
         // Auto-ingest results.
         let blob = live.lines.join("\n");
         self.ingest(&live, &blob, rid);
+
+        // Auto-loot: a tool artifact worth keeping (scan XML/JSON, mirrored FTP, etc.).
+        if let Some(art) = &live.artifact {
+            if let Ok(meta) = std::fs::metadata(art) {
+                if meta.len() > 0 {
+                    let name = art
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("artifact")
+                        .to_string();
+                    let rel = self.ws.rel(art);
+                    self.eng.add_loot(
+                        crate::model::LootItem::new(crate::model::LootKind::File, name, rel)
+                            .from(live.tool.clone())
+                            .on(live.target.clone())
+                            .sized(meta.len()),
+                    );
+                }
+            }
+        }
 
         let _ = self.ws.save(&self.eng);
         let _ = self.ws.export_notes(&self.eng);

@@ -108,6 +108,9 @@ cargo build --release
 
 # …or just print the topology + enumeration plan, no UI
 ./target/release/shrike --targets hosts.txt --import services.xml --plan
+
+# script it: run a resource file on launch
+./target/release/shrike --name job --rc engage.rc
 ```
 
 In the TUI: type `/` for the command menu, `Tab` to run the highlighted suggestion,
