@@ -54,7 +54,7 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
   concrete moves with a rationale and a MITRE ATT&CK tag; findings and commands are
   ATT&CK-tagged in the report.
 - **Stays in scope.** `/scope in|out` plus a pre-flight guard that blocks tools aimed
-  at out-of-scope targets (audited) — a safety net MSF and Viper don't have.
+  at out-of-scope targets (audited) — a safety net that most frameworks lack.
 - **Multi-engagement + evidence.** Switch engagements with `/workspace`, browse a Loot
   view (F6), export the credential vault (`/vault` → hashcat/john/csv), watch it all in
   a read-only browser dashboard (`/web`), and drive a Metasploit `msfrpcd` (`/msfrpc`).
@@ -109,26 +109,25 @@ Written in **Rust** (async, ratatui TUI) for fast, reliable, highly-parallel exe
 
 ## How it compares
 
-shrike is a single self-contained Rust **terminal** framework — not a web app, not an
-agent/implant, and it doesn't reimplement Metasploit. It's the orchestration layer that
-ties the tools you already have into one coherent, scope-guarded, well-documented workflow.
+shrike is a single self-contained Rust **terminal** framework — not a web app and it
+doesn't reimplement Metasploit. It's the orchestration layer that ties the tools you
+already have into one coherent, scope-guarded, well-documented workflow.
 
-| | shrike | Metasploit | Viper |
-|---|---|---|---|
-| Form factor | single static binary, TUI | Ruby + DB | web GUI + DB + Docker |
-| Backend | your existing Kali tools | built-in modules | Metasploit |
-| Recon → exploit orchestration | ✅ 103-tool catalog + suggestions | partial | partial |
-| State-aware next-step guidance | ✅ `/next` + MITRE | ❌ | ❌ |
-| Engagement scope guard | ✅ blocks out-of-scope | ❌ | ❌ |
-| Reverse-shell listener + post-ex | ✅ built-in | ✅ | ✅ (meterpreter) |
-| Credential vault + loot + report | ✅ | ✅ | ✅ |
-| Metasploit integration | ✅ via `msfrpcd` | — | ✅ |
-| Meterpreter sessions | ✅ via Metasploit RPC | ✅ | ✅ |
-| Custom agents / implants | ❌ (by design — uses MSF's) | ✅ | ✅ |
+| | shrike | Metasploit |
+|---|---|---|
+| Form factor | single static binary, TUI | Ruby + DB |
+| Backend | your existing toolchain | built-in modules |
+| Recon → exploit orchestration | ✅ 103-tool catalog + suggestions | partial |
+| State-aware next-step guidance | ✅ `/next` + MITRE ATT&CK | ❌ |
+| Engagement scope guard | ✅ blocks out-of-scope targets | ❌ |
+| Reverse-shell listener + post-ex | ✅ built-in | ✅ |
+| Credential vault + loot + report | ✅ | ✅ |
+| Metasploit / meterpreter | ✅ drives it via `msfrpcd` | ✅ native |
 
-Use shrike when you want MSF/Viper's *workflow* — sessions, loot, modules, a report — in
+Use shrike when you want that *workflow* — recon, sessions, loot, modules, a report — in
 one fast local binary that drives your own toolchain and keeps you inside the rules of
-engagement. Reach for Metasploit/Viper when you need their exploit modules or agent implants.
+engagement. It orchestrates the tools you already run (including Metasploit) rather than
+shipping its own exploit modules or agents.
 
 ## Documentation
 
