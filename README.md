@@ -117,7 +117,7 @@ already have into one coherent, scope-guarded, well-documented workflow.
 |---|---|---|
 | Form factor | single static binary, TUI | Ruby + DB |
 | Backend | your existing toolchain | built-in modules |
-| Recon → exploit orchestration | ✅ 148-tool catalog + suggestions | partial |
+| Recon → exploit orchestration | ✅ 171-tool catalog + suggestions | partial |
 | State-aware next-step guidance | ✅ `/next` + MITRE ATT&CK | ❌ |
 | Engagement scope guard | ✅ blocks out-of-scope targets | ❌ |
 | Reverse-shell listener + post-ex | ✅ built-in | ✅ |
